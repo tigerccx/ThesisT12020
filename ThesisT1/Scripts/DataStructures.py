@@ -2,8 +2,8 @@ import os
 
 import numpy as np
 from skimage import transform
-import cv2
 import torch.utils.data as data
+import cv2
 
 import nibabel as nib
 
@@ -85,15 +85,16 @@ class ImgDataSet(data.Dataset):
                 idxImg = idx
         return idxWrapper, idxImg
 
-    # Out: ndarray[Slices,Channels,H,W] dtype=int
+    # Out: ndarray[Slices,(Channels),H,W] dtype=int
     def __getitem__(self, index):  # 返回的是ndarray
         idxWrapper, idxImg = self.__DecodeIndex(index)
-        img0 = self.imgDataWrappersData[idxWrapper].Get(idxImg, self.slices)
-        img = np.transpose(img0, (2, 0, 1))
+        img0 = self.imgDataWrappersData[idxWrapper].Get(idxImg, self.slices)# ndarray[H,W,Slices]
+        target0 = self.imgDataWrappersMask[idxWrapper].Get(idxImg, 1) #ndarray[1,(Channels),H,W]
 
-        target0 = self.imgDataWrappersMask[idxWrapper].Get(idxImg, 1)
-        # print("target0: ",target0.shape)
-        target1 = np.transpose(target0, (3, 2, 0, 1))
+        img0, target0 = ImgDataSet.Preproc(img0, target0)
+
+        img = np.transpose(img0, (2, 0, 1)) # ndarray[Slices,H,W]
+        target1 = np.transpose(target0, (3, 2, 0, 1))#ndarray[1,(Channels),H,W] dtype=int
         # print("target1: ", target1.shape)
         target = np.reshape(target1, (target1.shape[1],target1.shape[2],target1.shape[3]))
         # print("img:\n", type(img), "\n", img.shape)
@@ -116,6 +117,27 @@ class ImgDataSet(data.Dataset):
                 'niisMaskTrain': niisMaskTrain, \
                 'niisDataTest': niisDataTest, \
                 'niisMaskTest': niisMaskTest}
+
+    @staticmethod
+    def Preproc(imgs, mask):
+        thres = 8
+
+        imgs255 = ImageProcessor.MapTo255(imgs)
+        imgsU8 = np.asarray(imgs255, np.uint8)
+        for i in range(imgsU8.shape[2]):
+            imgsU8[:,:,i] = cv2.blur(imgsU8[:,:,i], (2,2))
+
+        mask1 = mask+1
+
+        for i in range(imgsU8.shape[0]):
+            for j in range(imgsU8.shape[1]):
+                layers =  imgsU8[i,j,:]
+                if len(np.argwhere(layers > thres))==0:
+                    if mask1[i,j]<=1:
+                        mask1[i,j] = 0
+
+        imgs1 = ImageProcessor.MapTo1(np.asarray(imgsU8, int))
+        return imgs1, mask1
 
 # Use ndarray [H,W,(C),Slice(C)]
 # Use Grey1 img
@@ -207,9 +229,10 @@ class ImgDataWrapper():
             CommonUtil.MkFile(dir, filename)
             np.save(os.path.join(dir, filename), self.imgs[...,i])
 
+    # Out: ndarray [H,W,Slices]
     def Get(self, idx, slices=1):
         # return self.imgs[idx:idx+slices,:,:]
-        return self.PreProcessing(self.imgs[..., idx:idx + slices])
+        return self.imgs[..., idx:idx + slices]
 
     def GetCenterIdx(self, idx, slices=1):
         if slices % 2 == 0:
@@ -218,10 +241,6 @@ class ImgDataWrapper():
 
     def GetImgCount(self, slices=1):
         return self.imgs.shape[2] - slices + 1
-
-    def PreProcessing(self, imgs):
-        # PreProcessing
-        return imgs
 
 def Test():
     paths = CommonUtil.GetFileFromThisRootDir("../Sources/Data/data_nii/masks/", "nii")

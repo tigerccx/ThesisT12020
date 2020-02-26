@@ -252,7 +252,7 @@ def Main(dataImgs=None):
             loaderTest = data.DataLoader(dataset=datasetTest, batch_size=1, shuffle=True)
 
         # Prepare Network
-        net = Network(classes).type(CommonUtil.PackIntoTorchType(dataFmt)).to(device)
+        net = Network(classes+1).type(CommonUtil.PackIntoTorchType(dataFmt)).to(device)
 
         if TRAIN:
             criterion = LossFunc
