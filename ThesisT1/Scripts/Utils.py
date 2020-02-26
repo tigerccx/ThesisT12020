@@ -9,16 +9,6 @@ import torch
 
 from matplotlib import pylab as plt
 
-class PreProcessor():
-    # In: ndarray[H,W] dtype=int   (Seq)
-    #     ndarray[H,W] dtype=float (Grey1)
-    # Out: ndarray[H,W] dtype=int
-    @staticmethod
-    def EnhanceMask(mask, img, thres=0.02):
-        mask1 = mask+1
-        for i in range(img.shape[0]):
-            for j in range(img.shape[1]):
-
 
 class NiiProcessor():
 
