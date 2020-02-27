@@ -89,14 +89,14 @@ class ImgDataSet(data.Dataset):
     def __getitem__(self, index):  # 返回的是ndarray
         idxWrapper, idxImg = self.__DecodeIndex(index)
         img0 = self.imgDataWrappersData[idxWrapper].Get(idxImg, self.slices)# ndarray[H,W,Slices]
-        target0 = self.imgDataWrappersMask[idxWrapper].Get(idxImg, 1) #ndarray[1,(Channels),H,W]
+        target0 = self.imgDataWrappersMask[idxWrapper].Get(idxImg, 1) #ndarray[,H,W,(Channels),1]
+        target0 = np.reshape(target0, (target0.shape[0], target0.shape[1], target0.shape[2])) #ndarray[,H,W,(Channels)]
 
         img0, target0 = ImgDataSet.Preproc(img0, target0)
 
         img = np.transpose(img0, (2, 0, 1)) # ndarray[Slices,H,W]
-        target1 = np.transpose(target0, (3, 2, 0, 1))#ndarray[1,(Channels),H,W] dtype=int
+        target = np.transpose(target0, (2, 0, 1))#ndarray[1,(Channels),H,W] dtype=int
         # print("target1: ", target1.shape)
-        target = np.reshape(target1, (target1.shape[1],target1.shape[2],target1.shape[3]))
         # print("img:\n", type(img), "\n", img.shape)
         # print("target:\n", type(img), "\n", target.shape)
         return img, target
@@ -127,14 +127,16 @@ class ImgDataSet(data.Dataset):
         for i in range(imgsU8.shape[2]):
             imgsU8[:,:,i] = cv2.blur(imgsU8[:,:,i], (2,2))
 
-        mask1 = mask+1
+        mask0 = np.zeros((mask.shape[0],mask.shape[1],1),dtype=int)
+        mask1 = np.concatenate((mask0,mask),axis=2)
 
         for i in range(imgsU8.shape[0]):
             for j in range(imgsU8.shape[1]):
                 layers =  imgsU8[i,j,:]
                 if len(np.argwhere(layers > thres))==0:
-                    if mask1[i,j]<=1:
-                        mask1[i,j] = 0
+                    if mask1[i,j,1]==1:
+                        mask1[i,j,1] = 0
+                        mask1[i, j, 0] = 1
 
         imgs1 = ImageProcessor.MapTo1(np.asarray(imgsU8, int))
         return imgs1, mask1

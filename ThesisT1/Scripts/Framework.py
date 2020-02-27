@@ -192,7 +192,7 @@ def Main(dataImgs=None):
     np.random.seed(0)
 
     # Train or Test
-    TRAIN = False
+    TRAIN = True
     TEST = True
 
     #
