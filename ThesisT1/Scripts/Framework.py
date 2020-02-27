@@ -222,8 +222,13 @@ def Preproc(imgs, masks):
 
     for k in range(imgsU8.shape[2]):
         imgsU8[...,k] = cv2.blur(imgsU8[:,:,k], (2,2))
-        idxs = np.where(imgsU8[...,k]<=thres)
-        masks1[idxs and masks1<=1]=0
+        idxs = np.argwhere(imgsU8[...,k]<=thres)
+        for idx in idxs:
+            idx = tuple(idx)+(k,)
+            val = masks1[idx]
+            if val<=1:
+                masks1[idx]=0
+        #masks1[idxs and masks1<=1]=0
         # for i in range(imgsU8.shape[0]):
         #     for j in range(imgsU8.shape[1]):
         #         if imgsU8[i,j,k] <= thres:
@@ -247,10 +252,10 @@ def Main(dataImgs=None):
     np.random.seed(0)
 
     # Train or Test
-    TRAIN = False
+    TRAIN = True
     TEST = True
 
-    SAVE_OUTPUT = False
+    SAVE_OUTPUT = True
 
     #
     # Param Setting
@@ -419,7 +424,7 @@ def Main(dataImgs=None):
             # Evaluate network on the test dataset.  We aren't calculating gradients, so disable autograd to speed up
             # computations and reduce memory usage.
             with torch.no_grad():
-                for batch in loaderTest:
+                for i,batch in enumerate(loaderTest):
                     countBatch += loaderTest.batch_size
                     # Get a batch and potentially send it to GPU memory.
                     inputs = batch[0].type(CommonUtil.PackIntoTorchType(dataFmt))
@@ -430,9 +435,18 @@ def Main(dataImgs=None):
                     inputs = inputs.to(device)
 
                     masks = batch[1].type(CommonUtil.PackIntoTorchType(dataFmt))
-                    # print("masks: ",masks.shape)
+                    print("masks: ",masks[:, 1, ...].unique())
                     masksNP = masks.numpy() #ndarray [IdxInBatch, Channel, H, W]
                     masksNP1 = np.transpose(masksNP, (2, 3, 1, 0)) #ndarray [H, W, Channel, IdxInBatch]
+
+                    # TEST
+                    channel1 = masksNP[:, 1, ...]
+                    print("channel1", channel1.shape)
+                    print("channel1", np.unique(channel1))
+                    if np.all(channel1 == 0):
+                        raise Exception("Onehot encoding error! Channel 1 all 0!")
+                    # ENDTEST
+
                     # print(masksNP1.shape)
                     masks = masks.to(device)
 
@@ -446,20 +460,20 @@ def Main(dataImgs=None):
                     predictsNP = np.transpose(predictsNP1, (3,2,0,1)) #ndarray [IdxInBatch, Channel, H, W]
 
 
-                    #TEST
-                    onehoeSum = predictsNP1.sum(2).flatten()
-                    if np.any(onehoeSum != 1):
-                        raise Exception("Onehot encoding error! unique: ", np.unique(onehoeSum))
-
-                    onehoeSum = masksNP1.sum(2).flatten()
-                    if np.any(onehoeSum != 1):
-                        raise Exception("Onehot encoding error! unique: ", np.unique(onehoeSum))
-                    #ENDTEST
-
-
                     for i in range(classes):
                         predictNP = predictsNP[:, i, ...]
                         maskNP = masksNP[:, i, ...]
+                        if i==1:
+                            # TEST
+                            print("predictNP", predictNP.shape)
+                            print("predictNP", np.unique(predictNP))
+                            print("maskNP", maskNP.shape)
+                            print("maskNP", np.unique(maskNP))
+                            if np.all(maskNP == 0):
+                                raise Exception("Onehot encoding error! maskNP 1 all 0!")
+                            if np.all(predictNP == 0):
+                                raise Exception("Onehot encoding error! predictNP 1 all 0!")
+                            # ENDTEST
                         dice[i]+=diceCoef(predictNP, maskNP)
 
                     rateCorrect += np.sum(masksNP1 == predictsNP1).item()/len(masksNP1.flatten())

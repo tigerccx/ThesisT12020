@@ -64,6 +64,7 @@ class ImgDataSet(data.Dataset):
         # print("target0", target0.shape)
         img = np.transpose(img0, (2, 0, 1)) # ndarray[Slice,H,W]
         target = np.transpose(target0, (2, 0, 1))#ndarray[Channel,H,W] dtype=int
+
         # print("target1: ", target1.shape)
         # print("img:\n", type(img), "\n", img.shape)
         # print("target:\n", type(img), "\n", target.shape)
@@ -132,8 +133,6 @@ class ImgDataWrapper():
             #     ImageProcessor.ShowGrayImgHere(imgTest255, "255si", (10, 10))
             #     #ENDTEST
 
-            arrClasses = np.arange(classes)
-            countClasses = arrClasses.shape[0]
             max = np.max(np.unique(self.imgs))
             if max>classes:
                 raise Exception("Not enough classes! MaxClassValue: "+str(max))
@@ -142,12 +141,15 @@ class ImgDataWrapper():
                 maskTest255 = ImageProcessor.MapTo255(self.masks[...,testNum])
                 ImageProcessor.ShowGrayImgHere(maskTest255, "MASK", (10,10))
 
-            self.masks = CommonUtil.PackIntoOneHot(self.masks, countClasses)
-            # print("self.masks ", self.masks.shape)
-            # print("self.masks ",np.unique(self.masks))
-            onehoeSum = self.masks.sum(2).flatten()
-            if np.any(onehoeSum!=1):
-                raise Exception("Onehot encoding error! unique: ", np.unique(onehoeSum))
+            self.masks = CommonUtil.PackIntoOneHot(self.masks, classes)
+
+            #TEST
+            channel1 = self.masks[...,1,:]
+            # print("channel1",channel1.shape)
+            # print("channel1", np.unique(channel1))
+            if np.all(channel1 == 0):
+                raise Exception("Onehot encoding error! Channel 1 all 0!")
+            #ENDTEST
 
             if DEBUG:
                 # TEST
