@@ -12,6 +12,8 @@ import torch.optim as topti
 # from torchvision import datasets,transforms
 from torchsummary import summary
 
+import cv2
+
 import pynvml
 import gc
 
@@ -26,7 +28,7 @@ from LossFunc import MulticlassDiceLoss
 
 #MACRO
 DEBUG = False
-DEBUG_TEST = True
+DEBUG_TEST = False
 
 
 # Original Network
@@ -180,10 +182,63 @@ def LossFunc(output, target):
     # Loss Function
     return cross_entropy(output, target)
 
+# Input: ndarray [IdxInBatch, H, W]
+#        ndarray [IdxInBatch, H, W]
+# Output: float diceCoef
+def diceCoef(input, target):
+    N = target.shape[0]
+    smooth = 1
+
+    input_flat = np.reshape(input, (N, -1))
+    target_flat = np.reshape(target, (N, -1))
+    # print("input_flat: ",input_flat)
+    # print("input_flat: ", input_flat.shape)
+    # print("input_flat: ", np.unique(input_flat))
+    # print("target_flat: ",target_flat)
+    # print("target_flat: ", target_flat.shape)
+    # print("target_flat: ", np.unique(target_flat))
+
+    intersection = input_flat * target_flat
+    # print("intersection: ",intersection)
+    # print("intersection: ", intersection.shape)
+    # print("target_flat: ", np.unique(intersection))
+
+    loss = ((2 * (intersection.sum(1)) + smooth) / (input_flat.sum(1) + target_flat.sum(1) + smooth)).sum()/N
+    # print("loss: ",loss)
+    # loss = 1 - loss.sum() / N
+
+    return loss
+
+# Input: imgs Grey1 ndarray [H,W,Slice]
+#        masks GreyStep ndarray [H,W,Slice]
+# Preproc deal with Grey1 img and GreyStep mask (return the same format)
+def Preproc(imgs, masks):
+
+    thres = 8
+
+    imgs255 = ImageProcessor.MapTo255(imgs)
+    imgsU8 = np.asarray(imgs255, np.uint8)
+    masks1 = masks + 1
+
+    for k in range(imgsU8.shape[2]):
+        imgsU8[...,k] = cv2.blur(imgsU8[:,:,k], (2,2))
+        idxs = np.where(imgsU8[...,k]<=thres)
+        masks1[idxs and masks1<=1]=0
+        # for i in range(imgsU8.shape[0]):
+        #     for j in range(imgsU8.shape[1]):
+        #         if imgsU8[i,j,k] <= thres:
+        #             if masks1[i,j,k]<=1:
+        #                 masks1[i,j,k] = 0
+
+    imgs1 = ImageProcessor.MapTo1(np.asarray(imgsU8, int))
+    return imgs1, masks1
+
 #TODO: Add Temp for processed files
 #TODO: Add augmentationn
 #TODO: Try transfer learning
 #TODO: Use multi-thread for reading annd saving
+
+
 def Main(dataImgs=None):
     #
     # Main
@@ -192,18 +247,20 @@ def Main(dataImgs=None):
     np.random.seed(0)
 
     # Train or Test
-    TRAIN = True
+    TRAIN = False
     TEST = True
+
+    SAVE_OUTPUT = False
 
     #
     # Param Setting
     #
     #   Running Params
-    classes = 6
+    classes = 7
     batchSizeTrain = 8
     slices = 3
     resize = (256,256)#(256,256)#None
-    epochs = 30
+    epochs = 50
     learningRate = 0.001
     dataFmt = "float32"
 
@@ -242,17 +299,19 @@ def Main(dataImgs=None):
 
         if TRAIN:
             print("Making train set...")
-            datasetTrain = ImgDataSet(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], slices=slices, classes=classes, resize=resize, dataFmt=dataFmt)
+            datasetTrain = ImgDataSet(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], slices=slices, classes=classes, resize=resize, preproc=Preproc)
             print("Making train loader...")
             loaderTrain = data.DataLoader(dataset=datasetTrain, batch_size=batchSizeTrain, shuffle=True)
+            print("Done")
         if TEST:
             print("Making test set...")
-            datasetTest = ImgDataSet(niisAll["niisDataTest"], niisAll["niisMaskTest"], slices=slices, classes=classes, resize=resize, dataFmt=dataFmt)
+            datasetTest = ImgDataSet(niisAll["niisDataTest"], niisAll["niisMaskTest"], slices=slices, classes=classes, resize=resize, preproc=Preproc)
             print("Making test loader...")
-            loaderTest = data.DataLoader(dataset=datasetTest, batch_size=1, shuffle=True)
+            loaderTest = data.DataLoader(dataset=datasetTest, batch_size=1, shuffle=False)
+            print("Done")
 
         # Prepare Network
-        net = Network(classes+1).type(CommonUtil.PackIntoTorchType(dataFmt)).to(device)
+        net = Network(classes).type(CommonUtil.PackIntoTorchType(dataFmt)).to(device)
 
         if TRAIN:
             criterion = LossFunc
@@ -336,10 +395,10 @@ def Main(dataImgs=None):
 
                     if printLossPerFewBatches:
                         if i % batchPerSummary == batchPerSummary-1:
-                            print("Summary: Epoch: %2d, Batch: %4d, Loss: %.3f" % (epoch + 1, i + 1, running_loss / batchPerSummary))
+                            print("Summary: Epoch: %2d, Batch: %4d, Loss: %f" % (epoch + 1, i + 1, running_loss / batchPerSummary))
                             running_loss = 0
 
-                print("Epoch Summary: Epoch: %2d, Loss: %.3f" % (epoch + 1, epo_loss / batchCount))
+                print("Epoch Summary: Epoch: %2d, Loss: %f" % (epoch + 1, epo_loss / batchCount))
                 print("-" * 30)
 
             # Save mode
@@ -350,70 +409,94 @@ def Main(dataImgs=None):
             net.load_state_dict(torch.load("./model.pth"))
 
         if TEST:
+            print("Testing...")
+
             rateCorrect = 0
+            dice = np.zeros(classes)
+            countBatch = 0
+            countImg = 0
 
             # Evaluate network on the test dataset.  We aren't calculating gradients, so disable autograd to speed up
             # computations and reduce memory usage.
             with torch.no_grad():
                 for batch in loaderTest:
+                    countBatch += loaderTest.batch_size
                     # Get a batch and potentially send it to GPU memory.
                     inputs = batch[0].type(CommonUtil.PackIntoTorchType(dataFmt))
                     # print("inputs:", inputs.shape)
-                    inputsNP = inputs.numpy()
-                    inputsNP1 = np.transpose(inputsNP, (2, 3, 1, 0))
+                    inputsNP = inputs.numpy() #ndarray [IdxInBatch, Channel, H, W]
+                    inputsNP1 = np.transpose(inputsNP, (2, 3, 1, 0)) #ndarray [H, W, Channel, IdxInBatch]
                     # print(inputsNP1.shape)
                     inputs = inputs.to(device)
 
                     masks = batch[1].type(CommonUtil.PackIntoTorchType(dataFmt))
                     # print("masks: ",masks.shape)
-                    masksNP = masks.numpy()
-                    masksNP1 = np.transpose(masksNP, (2, 3, 1, 0))
+                    masksNP = masks.numpy() #ndarray [IdxInBatch, Channel, H, W]
+                    masksNP1 = np.transpose(masksNP, (2, 3, 1, 0)) #ndarray [H, W, Channel, IdxInBatch]
                     # print(masksNP1.shape)
                     masks = masks.to(device)
 
                     # Get predictions
                     outputs = net(inputs)  # TODO: Need modify
                     # print("outputs ",outputs.shape)
-                    outputsNP = outputs.cpu().numpy()
-                    outputsNP1 = np.transpose(outputsNP, (2, 3, 1, 0))
+                    outputsNP = outputs.cpu().numpy() #ndarray [IdxInBatch, Channel, H, W]
+                    outputsNP1 = np.transpose(outputsNP, (2, 3, 1, 0)) #ndarray [H, W, Channel, IdxInBatch]
                     # print(outputsNP1.shape)
-                    predictsNP1 = CommonUtil.HardMax(outputsNP1)
+                    predictsNP1 = CommonUtil.HardMax(outputsNP1) #ndarray [H, W, Channel, IdxInBatch]
+                    predictsNP = np.transpose(predictsNP1, (3,2,0,1)) #ndarray [IdxInBatch, Channel, H, W]
 
-                    rateCorrect += np.sum(masksNP1 == predictsNP1).item()/len(masks.flatten())
 
-                    if DEBUG_TEST:
+                    #TEST
+                    onehoeSum = predictsNP1.sum(2).flatten()
+                    if np.any(onehoeSum != 1):
+                        raise Exception("Onehot encoding error! unique: ", np.unique(onehoeSum))
+
+                    onehoeSum = masksNP1.sum(2).flatten()
+                    if np.any(onehoeSum != 1):
+                        raise Exception("Onehot encoding error! unique: ", np.unique(onehoeSum))
+                    #ENDTEST
+
+
+                    for i in range(classes):
+                        predictNP = predictsNP[:, i, ...]
+                        maskNP = masksNP[:, i, ...]
+                        dice[i]+=diceCoef(predictNP, maskNP)
+
+                    rateCorrect += np.sum(masksNP1 == predictsNP1).item()/len(masksNP1.flatten())
+
+                    if SAVE_OUTPUT:
+                        #Output
                         masksNP2 = CommonUtil.UnpackFromOneHot(masksNP1)
-                        outputsNP2 = CommonUtil.UnpackFromOneHot(predictsNP1)
+                        predictsNP2 = CommonUtil.UnpackFromOneHot(predictsNP1)
 
                         for iImg in range(inputsNP1.shape[3]):
-                            img = inputsNP1[:,:,1,iImg]
+                            countImg+=1
+
+                            img = inputsNP1[:,:,int(inputsNP1.shape[2]/2),iImg]
                             img255=ImageProcessor.MapTo255(img)
-                            ImageProcessor.ShowGrayImgHere(img255, "P"+str(iImg),(10,10))
+                            # ImageProcessor.ShowGrayImgHere(img255, "P"+str(iImg),(10,10))
+                            ImageProcessor.SaveGrayImg(pathTarg,str(countImg)+"_ORG.jpg",img255)
 
-                            # mask_0_5 = masksNP1[:,:,:,iImg]
-                            # mask_0_2 = mask_0_5[:,:,0:3]
-                            # mask_3_5 = mask_0_5[:,:,3:6]
-                            # ImageProcessor.ShowClrImgHere(mask_0_2, "P" + str(iImg)+"_0_2_TARG", (10, 10))
-                            # ImageProcessor.ShowClrImgHere(mask_3_5, "P" + str(iImg) + "_3_5_TARG",(10, 10))
                             mask = masksNP2[:,:, iImg]
-                            mask = ImageProcessor.MapTo255(mask)
-                            ImageProcessor.ShowGrayImgHere(mask, "P" + str(iImg)+"_TARG", (10, 10))
+                            mask255 = ImageProcessor.MapTo255(mask)
+                            # ImageProcessor.ShowGrayImgHere(mask255, "P" + str(iImg)+"_TARG", (10, 10))
+                            ImageProcessor.SaveGrayImg(pathTarg, str(countImg) + "_TARG.jpg", mask255)
 
-                            # out_0_5 = outputsNP1[:,:,:,iImg]
-                            # print(np.unique(out_0_5))
-                            # out_0_2 = out_0_5[:,:,0:3]
-                            # out_3_5 = out_0_5[:,:,3:6]
-                            # ImageProcessor.ShowClrImgHere(out_0_2, "P" + str(iImg) + "_0_2_OUT",
-                            #                               (10, 10))
-                            # ImageProcessor.ShowClrImgHere(out_3_5, "P" + str(iImg) + "_3_5_OUT",
-                            #                               (10, 10))
-                            output = outputsNP2[:,:, iImg]
-                            output = ImageProcessor.MapTo255(output)
-                            ImageProcessor.ShowGrayImgHere(output, "P" + str(iImg)+"_OUT", (10, 10))
+                            predict = predictsNP2[:,:, iImg]
+                            predict255 = ImageProcessor.MapTo255(predict)
+                            # ImageProcessor.ShowGrayImgHere(predict255, "P" + str(iImg)+"_PRED", (10, 10))
+                            ImageProcessor.SaveGrayImg(pathTarg, str(countImg) + "_PRED.jpg", predict255)
 
-            accuracy = rateCorrect / loaderTest.__len__()
+            print("Done")
 
-            print(f"Classification accuracy: {accuracy}")
+            accuracy = rateCorrect / countBatch
+            print("Classification accuracy: ",accuracy)
+
+            print("Dice Coef:")
+            dice = dice/countBatch
+            for i in range(classes):
+                print("Class ",i,": ",dice[i])
+
 
 
 def TestNiiWrapper():

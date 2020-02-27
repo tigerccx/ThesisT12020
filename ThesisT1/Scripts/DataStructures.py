@@ -18,64 +18,34 @@ DEBUG=False
 # Use Grey1 img
 class ImgDataSet(data.Dataset):
     # Accept array of niis
-    def __init__(self, niisData, niisMask, slices=1, classes=2, resize=None, dataFmt=None):
+    def __init__(self, niisData, niisMask, slices=1, classes=2, resize=None, preproc=None):
         # TODO: Maybe check data-mask match
-        self.imgDataWrappersData = np.empty(0)  # [ImgDataWrapper, ...]
-        self.imgDataWrappersMask = np.empty(0)  # [ImgDataWrapper, ...]
+        self.imgDataWrappers = np.empty(0)  # [ImgDataWrapper, ...]
 
-        print("Constructing Data...")
-
-        for nii in niisData:
-            self.imgDataWrappersData = np.append(self.imgDataWrappersData, np.array([ImgDataWrapper(nii, imgFmt=1, resize=resize, dataFmt=dataFmt)]), axis=0)
-            print("  Done...")
-
-        print("Constructing Mask...")
-        for nii in niisMask:
-            self.imgDataWrappersMask = np.append(self.imgDataWrappersMask, np.array([ImgDataWrapper(nii, imgFmt=-1, classes=classes, resize=resize, dataFmt=dataFmt)]), axis=0)
+        print("Constructing Data and Masks...")
+        for i in range(len(niisData)):
+            niiImg = niisData[i]
+            niiMask = niisMask[i]
+            self.imgDataWrappers = np.append(self.imgDataWrappers, \
+                                                 np.array([ImgDataWrapper(niiImg, niiMask, classes, resize=resize, preproc=preproc)]), \
+                                                 axis=0)
             print("  Done...")
 
         self.slices = 0  # int
         self.len = 0  # int
         self.SetSlices(slices)
-        # print(self.niiWrappersMask)
-
-    # Init from a directory containing .npy files
-    # def __init__(self, dir, slices, classes):
-    #     self.imgDataWrappersData = np.empty(0)  # [ImgDataWrapper, ...]
-    #     self.imgDataWrappersMask = np.empty(0)  # [ImgDataWrapper, ...]
-    #     print("Constructing Data...")
-    #
-    #     dirData = os.path.join(dir,"Data")
-    #     dirMask = os.path.join(dir, "Masks")
-    #
-    #     pathsData = CommonUtil.GetFileFromThisRootDir(dirData, "npy")
-    #     pathsMask = CommonUtil.GetFileFromThisRootDir(dirMask, "npy")
-    #
-    #     for path in pathsData:
-    #         self.imgDataWrappersData = np.append(self.imgDataWrappersData, np.array([ImgDataWrapper(path, 1)]), axis=0)
-    #         print("  Done...")
-    #
-    #     print("Constructing Mask...")
-    #     for path in pathsMask:
-    #         self.imgDataWrappersMask = np.append(self.imgDataWrappersMask, np.array([ImgDataWrapper(nii, -1, classes)]),
-    #                                              axis=0)
-    #         print("  Done...")
-    #
-    #     self.slices = 0  # int
-    #     self.len = 0  # int
-    #     self.SetSlices(slices)
 
     def SetSlices(self, slices):
         self.slices = slices
         self.len = 0
-        for wrapper in self.imgDataWrappersData:
+        for wrapper in self.imgDataWrappers:
             self.len += wrapper.GetImgCount(slices)
 
     def __DecodeIndex(self, idx):
         idxWrapper = 0
         idxImg = 0
-        for i in range(0, self.imgDataWrappersData.shape[0]):
-            wrapper = self.imgDataWrappersData[i]
+        for i in range(0, self.imgDataWrappers.shape[0]):
+            wrapper = self.imgDataWrappers[i]
             wrapperCount = wrapper.GetImgCount(self.slices)
             # print(wrapperCount)
             if idx - wrapperCount >= 0:
@@ -88,14 +58,12 @@ class ImgDataSet(data.Dataset):
     # Out: ndarray[Slices,(Channels),H,W] dtype=int
     def __getitem__(self, index):  # 返回的是ndarray
         idxWrapper, idxImg = self.__DecodeIndex(index)
-        img0 = self.imgDataWrappersData[idxWrapper].Get(idxImg, self.slices)# ndarray[H,W,Slices]
-        target0 = self.imgDataWrappersMask[idxWrapper].Get(idxImg, 1) #ndarray[,H,W,(Channels),1]
-        target0 = np.reshape(target0, (target0.shape[0], target0.shape[1], target0.shape[2])) #ndarray[,H,W,(Channels)]
+        img0, target0 = self.imgDataWrappers[idxWrapper].Get(idxImg, self.slices)# ndarray[H,W,Slice]  ndarray[H,W,Channel]
 
-        img0, target0 = ImgDataSet.Preproc(img0, target0)
-
-        img = np.transpose(img0, (2, 0, 1)) # ndarray[Slices,H,W]
-        target = np.transpose(target0, (2, 0, 1))#ndarray[1,(Channels),H,W] dtype=int
+        # print("img0",img0.shape)
+        # print("target0", target0.shape)
+        img = np.transpose(img0, (2, 0, 1)) # ndarray[Slice,H,W]
+        target = np.transpose(target0, (2, 0, 1))#ndarray[Channel,H,W] dtype=int
         # print("target1: ", target1.shape)
         # print("img:\n", type(img), "\n", img.shape)
         # print("target:\n", type(img), "\n", target.shape)
@@ -109,6 +77,9 @@ class ImgDataSet(data.Dataset):
         idx = np.random.permutation(niisData.shape[0])
         idxSplit = np.floor(len(idx) * trainSize).astype(int)
         idxLen = len(idx)
+        print("Splitting into:")
+        print("   Train: ",idx[0:idxSplit])
+        print("   Test: ", idx[idxSplit:idxLen])
         niisDataTrain = np.asarray(niisData[idx[0:idxSplit]])
         niisMaskTrain = np.asarray(niisMask[idx[0:idxSplit]])
         niisDataTest = np.asarray(niisData[idx[idxSplit:idxLen]])
@@ -118,74 +89,48 @@ class ImgDataSet(data.Dataset):
                 'niisDataTest': niisDataTest, \
                 'niisMaskTest': niisMaskTest}
 
-    @staticmethod
-    def Preproc(imgs, mask):
-        thres = 8
-
-        imgs255 = ImageProcessor.MapTo255(imgs)
-        imgsU8 = np.asarray(imgs255, np.uint8)
-        for i in range(imgsU8.shape[2]):
-            imgsU8[:,:,i] = cv2.blur(imgsU8[:,:,i], (2,2))
-
-        mask0 = np.zeros((mask.shape[0],mask.shape[1],1),dtype=int)
-        mask1 = np.concatenate((mask0,mask),axis=2)
-
-        for i in range(imgsU8.shape[0]):
-            for j in range(imgsU8.shape[1]):
-                layers =  imgsU8[i,j,:]
-                if len(np.argwhere(layers > thres))==0:
-                    if mask1[i,j,1]==1:
-                        mask1[i,j,1] = 0
-                        mask1[i, j, 0] = 1
-
-        imgs1 = ImageProcessor.MapTo1(np.asarray(imgsU8, int))
-        return imgs1, mask1
-
-# Use ndarray [H,W,(C),Slice(C)]
-# Use Grey1 img
+# Use Grey1 img (for final storage) ndarray [H,W,Slice]
+# Use Onehot mask (for final storage) ndarray [H,W,C,Slice]
+# Preproc deal with Grey1 img and GreyStep mask (return the same format)
 #TODO: Maybe wrap image into a class
 class ImgDataWrapper():
-    def __init__(self, nii, imgFmt, classes=1, resize=None, dataFmt=None):
-        # print(nii.header)
-        # print("Check Header")
-        # os.system("pause")
-        self.fmt = imgFmt
-        self.imgs = None
-        if imgFmt == 255:
-            self.imgs = NiiProcessor.ReadGrey255ImgsFromNii(nii)
-            # print("255")
-        elif imgFmt == 1:
-            self.imgs = NiiProcessor.ReadGrey1ImgsFromNii(nii)
-            # print("1")
-        else:
-            self.imgs = NiiProcessor.ReadOriginalGreyImgsFromNii(nii)
-            # print("orig")
+    def __init__(self, niiImg, niiMask, classes, resize=None, preproc= None, imgDataFmt=float, maskDataFmt=int):
+
+        self.imgs = NiiProcessor.ReadGrey1ImgsFromNii(niiImg)
+        self.masks = NiiProcessor.ReadGreyStepImgsFromNii(niiMask)
 
         if resize is not None:
             # Use pure resizing to preserve data matchiing
             self.imgs = transform.resize(self.imgs, resize+(self.imgs.shape[2],), order=0, clip=True,  preserve_range=True, anti_aliasing=False)
-            # print("resize")
+            self.masks = transform.resize(self.masks, resize + (self.masks.shape[2],), order=0, clip=True, preserve_range=True, anti_aliasing=False)
 
-        if dataFmt is not None and classes<=1:
-            self.imgs = self.imgs.astype(dtype=dataFmt)
-            # print("astype")
+        if DEBUG:
+            testNum = 20
+            maskTest255 = ImageProcessor.MapTo255(self.masks[..., testNum])
+            ImageProcessor.ShowGrayImgHere(maskTest255, "MASK", (10, 10))
+
+        if preproc is not None:
+            self.imgs,self.masks = preproc(self.imgs, self.masks)
+
+        self.imgs = self.imgs.astype(dtype=imgDataFmt)
+        self.masks = self.masks.astype(dtype=maskDataFmt)
 
         # One-hot encoding target
-        if classes > 1:
+        if classes > 2:
 
-            if DEBUG:
-                #TEST
-                testNum = 20
-                print("self.imgs.shape ",self.imgs.shape)
-                imgsTest = ImageProcessor.MapTo255(self.imgs)
-                imgTest = imgsTest[...,testNum]
-                print(np.unique(imgTest))
-                ImageProcessor.ShowGrayImgHere(imgTest,imgTest.shape,(10,10))
-                imgTest255 = ImageProcessor.MapTo255(imgTest)
-                ImageProcessor.ShowGrayImgHere(imgTest255, "255", (10, 10))
-                imgTest255 = imgsTest[...,testNum]
-                ImageProcessor.ShowGrayImgHere(imgTest255, "255si", (10, 10))
-                #ENDTEST
+            # if DEBUG:
+            #     #TEST
+            #     testNum = 20
+            #     print("self.imgs.shape ",self.imgs.shape)
+            #     imgsTest = ImageProcessor.MapTo255(self.imgs)
+            #     imgTest = imgsTest[...,testNum]
+            #     print(np.unique(imgTest))
+            #     ImageProcessor.ShowGrayImgHere(imgTest,imgTest.shape,(10,10))
+            #     imgTest255 = ImageProcessor.MapTo255(imgTest)
+            #     ImageProcessor.ShowGrayImgHere(imgTest255, "255", (10, 10))
+            #     imgTest255 = imgsTest[...,testNum]
+            #     ImageProcessor.ShowGrayImgHere(imgTest255, "255si", (10, 10))
+            #     #ENDTEST
 
             arrClasses = np.arange(classes)
             countClasses = arrClasses.shape[0]
@@ -193,35 +138,35 @@ class ImgDataWrapper():
             if max>classes:
                 raise Exception("Not enough classes! MaxClassValue: "+str(max))
 
-            self.imgs = CommonUtil.PackIntoOneHot(self.imgs, countClasses)
+            if DEBUG:
+                maskTest255 = ImageProcessor.MapTo255(self.masks[...,testNum])
+                ImageProcessor.ShowGrayImgHere(maskTest255, "MASK", (10,10))
+
+            self.masks = CommonUtil.PackIntoOneHot(self.masks, countClasses)
+            # print("self.masks ", self.masks.shape)
+            # print("self.masks ",np.unique(self.masks))
+            onehoeSum = self.masks.sum(2).flatten()
+            if np.any(onehoeSum!=1):
+                raise Exception("Onehot encoding error! unique: ", np.unique(onehoeSum))
 
             if DEBUG:
                 # TEST
-                print("self.imgs: ",self.imgs.shape)
-                imgsTest = np.transpose(self.imgs, (3,2,0,1))
-                mask_0_2 = np.transpose(imgsTest[testNum, 0:3], (1, 2, 0))
-                mask_3_5 = np.transpose(imgsTest[testNum, 3:6], (1, 2, 0))
-                ImageProcessor.ShowClrImgHere(mask_0_2, "_0_2_TARG",(10, 10))
-                ImageProcessor.ShowClrImgHere(mask_3_5, "_3_5_TARG",(10, 10))
+
+                print("self.imgs: ",self.masks.shape)
+                masksTest = np.transpose(self.masks, (3,2,0,1))
+                mask_0_2 = np.transpose(masksTest[testNum, 0:3], (1, 2, 0))
+                mask_3_5 = np.transpose(masksTest[testNum, 3:6], (1, 2, 0))
+                ImageProcessor.ShowClrImgHere(ImageProcessor.MapTo255(mask_0_2), "_0_2_TARG",(10, 10))
+                ImageProcessor.ShowClrImgHere(ImageProcessor.MapTo255(mask_3_5), "_3_5_TARG",(10, 10))
                 # ENDTEST
 
+        # print("self.imgs.shape",self.imgs.shape)
+        # print("self.masks.shape",self.masks.shape)
 
-        print(self.imgs.dtype,": ", self.imgs.shape)
         if np.any(np.isnan(self.imgs)):
             raise Exception("NAN Warning!")
-
-    # Init data from .npy
-    # def __init__(self, dir, imgFmt, isMultiChannel=False):
-    #     self.imgs = None
-    #     for path in paths:
-    #         if self.imgs is None:
-    #             self.imgs = np.array([np.load(path)])
-    #         else:
-    #             self.imgs = np.append(self.imgs, np.array([np.load(path)]),axis=0)
-    #     if isMultiChannel:
-    #         self.imgs = np.transpose(self.imgs,(3,0,1,2))
-    #     else:
-    #         self.imgs = np.transpose(self.imgs, (2,0,1))
+        if np.any(np.isnan(self.masks)):
+            raise Exception("NAN Warning!")
 
     # TODO: Form a single dir for each ImgDataWrapper
     def SaveToNPY(self, dir, preFix, suffix=".npy"):
@@ -231,15 +176,14 @@ class ImgDataWrapper():
             CommonUtil.MkFile(dir, filename)
             np.save(os.path.join(dir, filename), self.imgs[...,i])
 
-    # Out: ndarray [H,W,Slices]
+    # Out: ndarray [H,W,Slices], ndarray[H,W,Channel]
     def Get(self, idx, slices=1):
-        # return self.imgs[idx:idx+slices,:,:]
-        return self.imgs[..., idx:idx + slices]
+        return self.imgs[..., idx:idx + slices], self.masks[..., self.GetCenterIdx(idx, slices)]
 
     def GetCenterIdx(self, idx, slices=1):
         if slices % 2 == 0:
             raise Exception("Slices count is even")
-        return int(idx + np.floor(slices / 2))
+        return int(idx + int(slices / 2))
 
     def GetImgCount(self, slices=1):
         return self.imgs.shape[2] - slices + 1

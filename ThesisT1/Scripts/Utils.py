@@ -37,6 +37,12 @@ class NiiProcessor():
         return imgsG
 
     @staticmethod
+    def ReadGreyStepImgsFromNii(nii):
+        imgs = NiiProcessor.ReadImgsFromNii(nii)
+        imgs = ImageProcessor.MapToGreyStep(imgs)
+        return imgs
+
+    @staticmethod
     def ReadOriginalGreyImgsFromNii(nii):
         imgs = NiiProcessor.ReadImgsFromNii(nii)
         return imgs
@@ -251,7 +257,7 @@ class CommonUtil():
         for x in range(imgs.shape[0]):
             for y in range(imgs.shape[1]):
                 for z in range(imgs.shape[2]):
-                    imgs1[x, y, int(imgs[x, y, z]), z] = True
+                    imgs1[x, y, int(imgs[x, y, z]), z] = 1
         return imgs1
 
     # In: ndarray[H,W,Channels,Slices] dtype=int
