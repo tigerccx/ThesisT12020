@@ -106,27 +106,24 @@ class ImageProcessor():
         pass
 
     @staticmethod
-    def MapTo255(arr):
-        arrMax = np.amax(arr)
+    def MapTo255(arr, min=0, max=None):
+        if max is not None:
+            arrMax = max
+        else:
+            arrMax = np.amax(arr)
         if arrMax==0:
             arrMax = 1
-        arrG = np.rint(arr / arrMax * 255)
+        arrG = np.rint((arr-min) / (arrMax-min) * 255)
         return arrG
 
     @staticmethod
-    def MapTo1(arr):
-        # print("Check Mem(Start Mapping)")
-        # os.system("pause")
-        arrMax = np.amax(arr)
-        # print("Check Mem(After Max)")
-        # os.system("pause")
-        arrG = np.asarray(arr) / arrMax
-        # print("Check Mem(After div)")
-        # os.system("pause")
-        #return arrG.astype(float)
+    def MapTo1(arr, min=0, max=None):
+        if max is not None:
+            arrMax = max
+        else:
+            arrMax = np.amax(arr)
+        arrG = (arr-min) / (arrMax-min)
         arrG = arrG
-        # print("Check Mem(After astype)")
-        # os.system("pause")
         return  arrG
 
     @staticmethod

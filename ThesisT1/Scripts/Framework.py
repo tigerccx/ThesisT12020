@@ -238,6 +238,10 @@ def Preproc(imgs, masks):
     imgs1 = ImageProcessor.MapTo1(np.asarray(imgsU8, int))
     return imgs1, masks1
 
+
+
+
+
 #TODO: Add Temp for processed files
 #TODO: Add augmentationn
 #TODO: Try transfer learning
@@ -252,7 +256,7 @@ def Main(dataImgs=None):
     np.random.seed(0)
 
     # Train or Test
-    TRAIN = True
+    TRAIN = False
     TEST = True
 
     SAVE_OUTPUT = True
@@ -439,14 +443,6 @@ def Main(dataImgs=None):
                     masksNP = masks.numpy() #ndarray [IdxInBatch, Channel, H, W]
                     masksNP1 = np.transpose(masksNP, (2, 3, 1, 0)) #ndarray [H, W, Channel, IdxInBatch]
 
-                    # TEST
-                    channel1 = masksNP[:, 1, ...]
-                    print("channel1", channel1.shape)
-                    print("channel1", np.unique(channel1))
-                    if np.all(channel1 == 0):
-                        raise Exception("Onehot encoding error! Channel 1 all 0!")
-                    # ENDTEST
-
                     # print(masksNP1.shape)
                     masks = masks.to(device)
 
@@ -459,21 +455,9 @@ def Main(dataImgs=None):
                     predictsNP1 = CommonUtil.HardMax(outputsNP1) #ndarray [H, W, Channel, IdxInBatch]
                     predictsNP = np.transpose(predictsNP1, (3,2,0,1)) #ndarray [IdxInBatch, Channel, H, W]
 
-
                     for i in range(classes):
                         predictNP = predictsNP[:, i, ...]
                         maskNP = masksNP[:, i, ...]
-                        if i==1:
-                            # TEST
-                            print("predictNP", predictNP.shape)
-                            print("predictNP", np.unique(predictNP))
-                            print("maskNP", maskNP.shape)
-                            print("maskNP", np.unique(maskNP))
-                            if np.all(maskNP == 0):
-                                raise Exception("Onehot encoding error! maskNP 1 all 0!")
-                            if np.all(predictNP == 0):
-                                raise Exception("Onehot encoding error! predictNP 1 all 0!")
-                            # ENDTEST
                         dice[i]+=diceCoef(predictNP, maskNP)
 
                     rateCorrect += np.sum(masksNP1 == predictsNP1).item()/len(masksNP1.flatten())
@@ -492,12 +476,12 @@ def Main(dataImgs=None):
                             ImageProcessor.SaveGrayImg(pathTarg,str(countImg)+"_ORG.jpg",img255)
 
                             mask = masksNP2[:,:, iImg]
-                            mask255 = ImageProcessor.MapTo255(mask)
+                            mask255 = ImageProcessor.MapTo255(mask, max=classes-1)
                             # ImageProcessor.ShowGrayImgHere(mask255, "P" + str(iImg)+"_TARG", (10, 10))
                             ImageProcessor.SaveGrayImg(pathTarg, str(countImg) + "_TARG.jpg", mask255)
 
                             predict = predictsNP2[:,:, iImg]
-                            predict255 = ImageProcessor.MapTo255(predict)
+                            predict255 = ImageProcessor.MapTo255(predict, max=classes-1)
                             # ImageProcessor.ShowGrayImgHere(predict255, "P" + str(iImg)+"_PRED", (10, 10))
                             ImageProcessor.SaveGrayImg(pathTarg, str(countImg) + "_PRED.jpg", predict255)
 

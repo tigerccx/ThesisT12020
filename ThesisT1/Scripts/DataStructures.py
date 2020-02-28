@@ -107,7 +107,7 @@ class ImgDataWrapper():
 
         if DEBUG:
             testNum = 20
-            maskTest255 = ImageProcessor.MapTo255(self.masks[..., testNum])
+            maskTest255 = ImageProcessor.MapTo255(self.masks[..., testNum],max=classes-1)
             ImageProcessor.ShowGrayImgHere(maskTest255, "MASK", (10, 10))
 
         if preproc is not None:
@@ -138,7 +138,7 @@ class ImgDataWrapper():
                 raise Exception("Not enough classes! MaxClassValue: "+str(max))
 
             if DEBUG:
-                maskTest255 = ImageProcessor.MapTo255(self.masks[...,testNum])
+                maskTest255 = ImageProcessor.MapTo255(self.masks[...,testNum],max=lasses)
                 ImageProcessor.ShowGrayImgHere(maskTest255, "MASK", (10,10))
 
             self.masks = CommonUtil.PackIntoOneHot(self.masks, classes)
