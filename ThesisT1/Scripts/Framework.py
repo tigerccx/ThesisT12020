@@ -575,7 +575,7 @@ def TestNetwork():
     torch.cuda.empty_cache()
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     net = Network(6).to(device)
-    summary(net, (3, 480, 480), 32)
+    summary(net, (3, 256, 256), 8)
 
     pynvml.nvmlInit()
     handle = pynvml.nvmlDeviceGetHandleByIndex(0)  # 0表示第一块显卡
