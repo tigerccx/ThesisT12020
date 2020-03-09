@@ -11,6 +11,7 @@ import torch.optim as topti
 
 # from torchvision import datasets,transforms
 from torchsummary import summary
+from matplotlib import pylab as plt
 
 import cv2
 
@@ -71,41 +72,6 @@ class Network(tnn.Module):
 
         # Softmax
         self.softmax2d = tnn.Softmax2d()
-
-    # def forward_0(self, input):
-    #     # Layer1(↓)
-    #     # print("input: ",input.shape)
-    #     x1 = tfunc.relu(self.conv1(input))
-    #     # print("x1: ",x1.shape)
-    #     x2 = tfunc.relu(self.conv2(x1))
-    #     x3 = self.maxpool1(x2)
-    #
-    #     # Layer2(↓)
-    #     x4 = tfunc.relu(self.conv3(x3))
-    #     x5 = tfunc.relu(self.conv4(x4))
-    #     x6 = self.maxpool1(x5)
-    #
-    #     # Layer3(→)
-    #     x7 = tfunc.relu(self.conv5(x6))
-    #     x8 = tfunc.relu(self.upconv5(x7))
-    #     x9 = self.upsamp1(x8)
-    #
-    #     # Layer4(↑)
-    #     # print("x5: ",x5.shape)
-    #     # print("x9: ",x9.shape)
-    #     x10 = torch.cat([x5, x9], 1)
-    #     # print("x10: ",x10.shape)
-    #     x11 = tfunc.relu(self.upconv4(x10))
-    #     x12 = tfunc.relu(self.upconv3(x11))
-    #     x13 = self.upsamp1(x12)
-    #
-    #     # Layer5(↑)
-    #     x14 = torch.cat([x2, x13], 1)
-    #     x15 = tfunc.relu(self.upconv2(x14))
-    #     x16 = tfunc.relu(self.upconv1(x15))
-    #     x17 = torch.sigmoid(self.upconv0(x16))
-    #
-    #     return x17
 
     def forward_1(self, input):
         # Layer1(↓)
@@ -248,36 +214,32 @@ def Preproc(imgs, masks):
 #TODO: Use multi-thread for reading annd saving
 
 
-def Main(dataImgs=None):
+def RunNN(classes, slices, resize, \
+         trainTestSplit, batchSizeTrain, epochs, learningRate, \
+         toTrain, toTest, toSaveOutput, \
+         pathModel, pathSrc, pathTarg, \
+         dataFmt="float32", randSeed=0):
     #
     # Main
     #
 
-    np.random.seed(0)
+    np.random.seed(randSeed)
 
-    # Train or Test
-    TRAIN = False
-    TEST = True
+    TRAIN = toTrain
+    TEST = toTest
+    SAVE_OUTPUT = toSaveOutput
 
-    SAVE_OUTPUT = True
-
-    #
-    # Param Setting
-    #
-    #   Running Params
-    classes = 7
-    batchSizeTrain = 8
-    slices = 3
-    resize = (256,256)#(256,256)#None
-    epochs = 50
-    learningRate = 0.001
-    dataFmt = "float32"
+    pathSrcData = os.path.join(pathSrc, "data")
+    pathSrcMask = os.path.join(pathSrc, "masks")
 
     #   Printing Param
     printLossPerBatch = False
 
     printLossPerFewBatches = False
     batchPerSummary = 8
+
+    accuracy = None
+    dice = None
 
     if TRAIN or TEST:
 
@@ -291,16 +253,12 @@ def Main(dataImgs=None):
         # Prepare Dataset
         #
         # Load nii
-        pathSrc = "../../../Sources/Data/data_nii"
-        pathTarg = "../../../Sources/Data/output"
-        pathSrcData = os.path.join(pathSrc, "data")
-        pathSrcMask = os.path.join(pathSrc, "masks")
 
         niisData = NiiProcessor.ReadAllNiiInDir(pathSrcData)
         niisMask = NiiProcessor.ReadAllNiiInDir(pathSrcMask)
 
         # Split train set and test set
-        niisAll = ImgDataSet.Split(niisData, niisMask, 0.8)
+        niisAll = ImgDataSet.Split(niisData, niisMask, trainTestSplit)
 
         # Create DataLoaders
         # TODO: 使用torchvision?
@@ -411,11 +369,11 @@ def Main(dataImgs=None):
                 print("-" * 30)
 
             # Save mode
-            torch.save(net.state_dict(), "./model.pth")
+            torch.save(net.state_dict(), pathModel)
             print("Saved model")
 
         if not TRAIN and TEST:
-            net.load_state_dict(torch.load("./model.pth"))
+            net.load_state_dict(torch.load(pathModel))
 
         if TEST:
             print("Testing...")
@@ -439,7 +397,7 @@ def Main(dataImgs=None):
                     inputs = inputs.to(device)
 
                     masks = batch[1].type(CommonUtil.PackIntoTorchType(dataFmt))
-                    print("masks: ",masks[:, 1, ...].unique())
+                    #print("masks: ",masks[:, 1, ...].unique())
                     masksNP = masks.numpy() #ndarray [IdxInBatch, Channel, H, W]
                     masksNP1 = np.transpose(masksNP, (2, 3, 1, 0)) #ndarray [H, W, Channel, IdxInBatch]
 
@@ -488,12 +446,11 @@ def Main(dataImgs=None):
             print("Done")
 
             accuracy = rateCorrect / countBatch
-            print("Classification accuracy: ",accuracy)
+            dice = dice / countBatch
 
-            print("Dice Coef:")
-            dice = dice/countBatch
-            for i in range(classes):
-                print("Class ",i,": ",dice[i])
+    return accuracy, dice
+
+
 
 
 
@@ -596,6 +553,124 @@ def TestNetwork():
     # Total(MB): 2048.0
     # Used(MB): 667.7109375
     # Free(MB): 1380.2890625
+
+def Main():
+    # Rand Seed
+    randSeed = 0
+
+    # Train or Test
+    toTrain = True
+    toTest = True
+
+    toSaveOutput = False#True
+
+    #
+    # Param Setting
+    #
+    #   Running Params
+    classes = 7
+    trainTestSplit = 0.8
+    batchSizeTrain = 8
+    slices = 3
+    resize = (256, 256)  # None
+    epochs = 50
+    learningRate = 0.001
+    dataFmt = "float32"
+
+    pathModel = "./model_temp.pth"  # "./model_D2.pth"#"./model.pth"#"./model_6.pth"
+    pathSrc = "../../../Sources/Data/data_nii"
+    pathTarg = "../../../Sources/Data/output_temp#"  # "../../../Sources/Data/output_D2"#"../../../Sources/Data/output"#"../../../Sources/Data/output_6"
+
+    countRun = 5
+
+    # Test from 1 train sets to 11 train sets
+    X = np.arange(1,12,1)
+    print(X)
+    XRate = X/12
+    print(XRate)
+    YAcc = np.zeros((len(X),countRun))
+    YAccAve = np.zeros(len(X))
+    YDiceClasses = np.zeros((len(X),classes,countRun))
+    YDiceClassesAve = np.zeros((len(X), classes))
+
+    for i in range(len(XRate)):
+
+        print("\n\n")
+        print("="*66)
+        print("=" * 66)
+        print("Run for Train Size: ",X[i])
+        print("\n")
+
+        accAve = 0
+        diceAve = np.zeros(classes)
+
+        for count in range(countRun):
+            print("\n")
+            print("*" * 44)
+            print("Run: ", count)
+            trainTestSplit = XRate[i]
+            accuracy, dice = RunNN(classes, slices, resize, \
+                  trainTestSplit, batchSizeTrain, epochs, learningRate, \
+                  toTrain, toTest, toSaveOutput, \
+                  pathModel, pathSrc, pathTarg, \
+                  dataFmt, randSeed)
+            print("Classification accuracy: ", accuracy)
+
+            print("Dice Coef:")
+
+            for j in range(classes):
+                print("Class ", j, ": ", dice[j])
+
+            YAcc[i,count] = accuracy
+            YDiceClasses[i,:,count] = dice
+
+            accAve+=accuracy
+            diceAve+=dice
+
+        accAve/=countRun
+        diceAve/=countRun
+
+        YAccAve[i] = accAve
+        YDiceClassesAve[i,:] = diceAve
+
+    # Plot Acc
+    plt.title("Accuracy")
+    plt.xlabel("Train Set Size")
+    plt.ylabel("Accuracy")
+    plt.plot(X, YAccAve, label="Accuracy")
+
+    for count in range(countRun):
+        Y = YAcc[:,count]
+        plt.scatter(X, Y, marker='x')
+
+    plt.legend()
+    plt.show()
+
+
+    # Plot Dice
+    plt.title("Dice")
+    plt.subplot(1,2,1)
+    plt.xlabel("Train Set Size")
+    plt.ylabel("Dice")
+    plt.plot(X, YDiceClassesAve[:, 0], label="Dark Background")
+    plt.plot(X, YDiceClassesAve[:, 1], label="Other Muscles and Tissues")
+    plt.plot(X, YDiceClassesAve[:, 2], label="Class 2")
+    plt.plot(X, YDiceClassesAve[:, 3], label="Class 3")
+    plt.plot(X, YDiceClassesAve[:, 4], label="Class 4")
+    plt.plot(X, YDiceClassesAve[:, 5], label="Class 5")
+    plt.plot(X, YDiceClassesAve[:, 6], label="Target Muscle")
+    plt.legend(loc=2, bbox_to_anchor=(1.05,1.0),borderaxespad = 0.)
+    plt.show()
+
+    for cls in range(classes):
+        plt.title("Class "+str(cls))
+        plt.xlabel("Train Set Size")
+        plt.ylabel("Dice")
+        plt.plot(X, YDiceClassesAve[:, cls])
+        for count in range(countRun):
+            Y = YDiceClasses[:, cls, count]
+            plt.scatter(X, Y, marker='x')
+        plt.show()
 
 
 if __name__ == '__main__':

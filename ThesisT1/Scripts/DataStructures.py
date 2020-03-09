@@ -76,7 +76,7 @@ class ImgDataSet(data.Dataset):
     @staticmethod
     def Split(niisData, niisMask, trainSize):
         idx = np.random.permutation(niisData.shape[0])
-        idxSplit = np.floor(len(idx) * trainSize).astype(int)
+        idxSplit = int(len(idx) * trainSize)
         idxLen = len(idx)
         print("Splitting into:")
         print("   Train: ",idx[0:idxSplit])
