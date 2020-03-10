@@ -53,6 +53,7 @@ class ImgDataSet(data.Dataset):
             else:
                 idxWrapper = i
                 idxImg = idx
+                break
         return idxWrapper, idxImg
 
     # Out: ndarray[Slices,(Channels),H,W] dtype=int
