@@ -579,7 +579,7 @@ def Main():
 
     pathModel = "./model_temp.pth"  # "./model_D2.pth"#"./model.pth"#"./model_6.pth"
     pathSrc = "../../../Sources/Data/data_nii"
-    pathTarg = "../../../Sources/Data/output_temp#"  # "../../../Sources/Data/output_D2"#"../../../Sources/Data/output"#"../../../Sources/Data/output_6"
+    pathTarg = "../../../Sources/Data/output_temp"  # "../../../Sources/Data/output_D2"#"../../../Sources/Data/output"#"../../../Sources/Data/output_6"
 
     countRun = 5
 
