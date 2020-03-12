@@ -284,6 +284,90 @@ class CommonUtil():
                     imgsHM[i,j,:,k] = onehot
         return imgsHM
 
+
+class CV2ImageProcessor():
+    # In: imgCV2: ndarray[] dtype = uint8
+    #     translation: tuple(int w,int h)
+    # Out: ndarray[] dtype = uint8
+    @staticmethod
+    def Translate(imgCV2, translation):
+        mTranslate = np.array([[1, 0, translation[0]], [0, 1, translation[1]]], dtype="float32")
+        imgCV2Rot = cv2.warpAffine(imgCV2, mTranslate, imgCV2.shape)
+        return imgCV2Rot
+
+    # In: imgCV2: ndarray[] dtype = uint8
+    #     angle: float
+    #     center: tuple(int w,int h)
+    #     scale: float
+    # Out: ndarray[] dtype = uint8
+    @staticmethod
+    def Rotate(image, angle, center=None, scale=1.0):
+        (h, w) = image.shape[:2]
+        if center is None:
+            center = (w / 2, h / 2)
+        mRot = cv2.getRotationMatrix2D(center, angle, scale)
+        imgCV2Rot = cv2.warpAffine(imgCV2, mRot, (w, h))
+        return imgCV2Rot
+
+    @staticmethod
+    def __ClampSizeWithCenter(center, sizeToContain, size):
+        hOdd = True  # 奇 不做特殊处理
+        wOdd = True
+        if sizeToContain[0] % 2 == 0:  # 偶 中心偏左
+            hOdd = False
+        if sizeToContain[1] % 2 == 0:
+            wOdd = False
+
+        t = center[1] - int(sizeToContain[0] / 2) if hOdd else center[1] - int(sizeToContain[0] / 2) + 1
+        b = center[1] + int(sizeToContain[0] / 2) + 1
+        l = center[0] - int(sizeToContain[1] / 2) if wOdd else center[0] - int(sizeToContain[1] / 2) + 1
+        r = center[0] + int(sizeToContain[1] / 2) + 1
+
+        t = int(max(0, t))
+        b = int(min(size[0] + 1, b))
+        l = int(max(0, l))
+        r = int(min(size[1] + 1, r))
+
+        return t, b, l, r
+
+    # In: imgCV2: ndarray[] dtype = uint8
+    #     scale2D: tuple(float w,float h)
+    # Out: ndarray[] dtype = uint8
+    @staticmethod
+    def ScaleAtCenter(imgCV2, scale2D):
+        imgCV2Scale = np.zeros(imgCV2.shape)
+        scaledSize = (int(imgCV2.shape[0] * scale2D[1]), int(imgCV2.shape[1] * scale2D[0]))  # (h,w)
+        imgCV2Scale0 = cv2.resize(imgCV2, scaledSize, interpolation=cv2.INTER_NEAREST)
+
+        center = (int(imgCV2Scale.shape[1] / 2), int(imgCV2Scale.shape[0] / 2))
+
+        center0 = (int(imgCV2Scale0.shape[1] / 2), int(imgCV2Scale0.shape[0] / 2))
+
+        t, b, l, r = CV2ImageProcessor.__ClampSizeWithCenter(center, imgCV2Scale0.shape, imgCV2Scale.shape)
+        t0, b0, l0, r0 = CV2ImageProcessor.__ClampSizeWithCenter(center0, imgCV2Scale.shape, imgCV2Scale0.shape)
+
+        imgCV2Scale[t:b, l:r, ...] = imgCV2Scale0[t0:b0, l0:r0, ...]
+        return imgCV2Scale
+
+    # In: imgCV2: ndarray[] dtype = uint8
+    #     sheer2D: tuple(float w,float h)
+    # Out: ndarray[] dtype = uint8
+    @staticmethod
+    def Sheer(imgCV2, sheer2D):
+        src = np.array([(0, 0), (0, 1), (1, 0)], dtype="float32")
+        targ = np.array([(-sheer2D[1], sheer2D[0]), (0, 1 + sheer2D[0]), (1 - sheer2D[1], 0)], dtype="float32")
+        mSheer = cv2.getAffineTransform(src, targ)
+        imgCV2Sheer = cv2.warpAffine(imgCV2, mSheer, imgCV2.shape)
+        return imgCV2Sheer
+
+    # In: imgCV2: ndarray[] dtype = uint8
+    #     flipCode: 0:vert 1:horz -1:both
+    # Out: ndarray[] dtype = uint8
+    def Flip(imgCV2, flipCode):
+        imgCV2Flip = cv2.flip(imgCV2, flipCode)
+        return imgCV2Flip
+
+
 def test():
     pathSrc = "../Sources/Data/data_nii"
     pathTarg = "../Sources/Data/output"
