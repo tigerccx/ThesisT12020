@@ -192,6 +192,7 @@ class ImageProcessor():
         cv2.imwrite(os.path.join(dir, imgName), img)
         return
 
+
 class CommonUtil():
     @staticmethod
     def Mkdir(path):
@@ -290,9 +291,9 @@ class CV2ImageProcessor():
     #     translation: tuple(int w,int h)
     # Out: ndarray[] dtype = uint8
     @staticmethod
-    def Translate(imgCV2, translation):
+    def Translate(imgCV2, translation, interpolation=cv2.INTER_LINEAR):
         mTranslate = np.array([[1, 0, translation[0]], [0, 1, translation[1]]], dtype="float32")
-        imgCV2Rot = cv2.warpAffine(imgCV2, mTranslate, imgCV2.shape)
+        imgCV2Rot = cv2.warpAffine(imgCV2, mTranslate, imgCV2.shape, flags=interpolation)
         return imgCV2Rot
 
     # In: imgCV2: ndarray[] dtype = uint8
@@ -301,12 +302,12 @@ class CV2ImageProcessor():
     #     scale: float
     # Out: ndarray[] dtype = uint8
     @staticmethod
-    def Rotate(image, angle, center=None, scale=1.0):
-        (h, w) = image.shape[:2]
+    def Rotate(imgCV2, angle, center=None, scale=1.0, interpolation=cv2.INTER_LINEAR):
+        (h, w) = imgCV2.shape[:2]
         if center is None:
             center = (w / 2, h / 2)
         mRot = cv2.getRotationMatrix2D(center, angle, scale)
-        imgCV2Rot = cv2.warpAffine(imgCV2, mRot, (w, h))
+        imgCV2Rot = cv2.warpAffine(imgCV2, mRot, (w, h), flags=interpolation)
         return imgCV2Rot
 
     @staticmethod
@@ -334,10 +335,10 @@ class CV2ImageProcessor():
     #     scale2D: tuple(float w,float h)
     # Out: ndarray[] dtype = uint8
     @staticmethod
-    def ScaleAtCenter(imgCV2, scale2D):
-        imgCV2Scale = np.zeros(imgCV2.shape)
+    def ScaleAtCenter(imgCV2, scale2D, interpolation=cv2.INTER_LINEAR):
+        imgCV2Scale = np.zeros(imgCV2.shape, dtype=np.uint8)
         scaledSize = (int(imgCV2.shape[0] * scale2D[1]), int(imgCV2.shape[1] * scale2D[0]))  # (h,w)
-        imgCV2Scale0 = cv2.resize(imgCV2, scaledSize, interpolation=cv2.INTER_NEAREST)
+        imgCV2Scale0 = cv2.resize(imgCV2, scaledSize, interpolation=interpolation)
 
         center = (int(imgCV2Scale.shape[1] / 2), int(imgCV2Scale.shape[0] / 2))
 
@@ -353,11 +354,11 @@ class CV2ImageProcessor():
     #     sheer2D: tuple(float w,float h)
     # Out: ndarray[] dtype = uint8
     @staticmethod
-    def Sheer(imgCV2, sheer2D):
+    def Sheer(imgCV2, sheer2D, interpolation=cv2.INTER_LINEAR):
         src = np.array([(0, 0), (0, 1), (1, 0)], dtype="float32")
         targ = np.array([(-sheer2D[1], sheer2D[0]), (0, 1 + sheer2D[0]), (1 - sheer2D[1], 0)], dtype="float32")
         mSheer = cv2.getAffineTransform(src, targ)
-        imgCV2Sheer = cv2.warpAffine(imgCV2, mSheer, imgCV2.shape)
+        imgCV2Sheer = cv2.warpAffine(imgCV2, mSheer, imgCV2.shape, flags=interpolation)
         return imgCV2Sheer
 
     # In: imgCV2: ndarray[] dtype = uint8
