@@ -205,6 +205,96 @@ def Preproc(imgs, masks):
     return imgs1, masks1
 
 
+'''
+Aug:
+    Org:
+    dataOrg
+    Flip
+    dataFlip
+    for dataOrg and data Flip:
+        Rand x4 : Sheer(-0.1:0.1,-0.1:0.1),Scale(0.95,0.105),Rot(-20,20)
+'''
+
+
+# In: ndarray[H,W,Slice] dtype=uint8
+# Out: ndarray[CountAug,H,W,Slice] dtype=uint8
+def AugCV2(imgsCV2, sheer, scale, rot, isImg):
+    interpolation = None
+    if isImg:
+        interpolation = cv2.INTER_LINEAR
+    else:
+        interpolation = cv2.INTER_NEAREST
+    atlasesCV2 = np.empty((0,) + imgsCV2.shape)
+    imgsCV2Aug = np.empty(imgsCV2.shape)
+    for j in range(imgsCV2.shape[2]):
+        imgsCV2Aug[..., j] = CV2ImageProcessor.Rotate(CV2ImageProcessor.ScaleAtCenter(
+            CV2ImageProcessor.Sheer(imgsCV2[..., j], sheer, interpolation=interpolation), scale,
+            interpolation=interpolation), rot, interpolation=interpolation)
+
+    atlasesCV2 = np.append(atlasesCV2, np.asarray([imgsCV2Aug]), axis=0)
+    return atlasesCV2
+
+
+# In: ndarray[H,W,Slice] fmt=Grey1
+#     ndarray[H,W,Slice] fmt=GreyStep
+# Out: ndarray[CountAug,H,W,Slice] fmt=Grey1
+#      ndarray[CountAug,H,W,Slice] fmt=GreyStep
+# DataAug: function for data augmentation
+def DataAug(atlasImg, atlasMask, countAug=1):
+    imgs255 = ImageProcessor.MapTo255(atlasImg)
+    imgsU8 = np.asarray(imgs255, np.uint8)
+
+    masks255 = ImageProcessor.MapTo255(atlasMask)
+    masksU8 = np.asarray(masks255, np.uint8)
+
+    #     atlasesImgU8 = AugCV2(imgsU8)
+    #     atlasesMaskU8 = AugCV2(masksU8)
+
+    '''
+    Aug:
+        Org:
+        dataOrg
+        Flip
+        dataFlip
+        for dataOrg and data Flip:
+            Rand x4 : Sheer(-0.1:0.1,-0.1:0.1),Scale(0.95,1.05),Rot(-20,20)
+    '''
+
+    atlasesImgU8 = np.array([imgsU8], dtype=np.uint8)
+    atlasesMaskU8 = np.array([masksU8], dtype=np.uint8)
+
+    imgsU8Flip = np.empty(imgsU8.shape)
+    for i in range(imgsU8.shape[2]):
+        imgsU8Flip[..., i] = CV2ImageProcessor.Flip(imgsU8[..., i], 0)
+    atlasesImgU8 = np.append(atlasesImgU8, np.asarray([imgsU8Flip]), axis=0)
+
+    masksU8Flip = np.empty(masksU8.shape)
+    for i in range(masksU8.shape[2]):
+        masksU8Flip[..., i] = CV2ImageProcessor.Flip(masksU8[..., i], 0)
+    atlasesMaskU8 = np.append(atlasesMaskU8, np.asarray([masksU8Flip]), axis=0)
+
+    for i in range(countAug):
+        sheer = (np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1))
+        scale = np.random.uniform(0.95, 1.05)
+        scale = (scale, scale)
+        rot = np.random.uniform(-20.0, 20.0)
+        atlasesImgU8 = np.append(atlasesImgU8, AugCV2(imgsU8, sheer, scale, rot), axis=0)
+        atlasesMaskU8 = np.append(atlasesMaskU8, AugCV2(masksU8, sheer, scale, rot), axis=0)
+
+        sheer = (np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1))
+        scale = np.random.uniform(0.95, 1.05)
+        scale = (scale, scale)
+        rot = np.random.uniform(-20.0, 20.0)
+        atlasesImgU8 = np.append(atlasesImgU8, AugCV2(imgsU8Flip, sheer, scale, rot, True), axis=0)
+        atlasesMaskU8 = np.append(atlasesMaskU8, AugCV2(masksU8Flip, sheer, scale, rot, False), axis=0)
+
+    atlasesImg255 = np.asarray(atlasesImgU8, np.int16)
+    atlasesMask255 = np.asarray(atlasesMaskU8, np.int16)
+
+    atlasesImg = ImageProcessor.MapTo1(atlasesImg255)
+    atlasesMask = ImageProcessor.MapToGreyStep(atlasesMask255)
+
+    return atlasesImg, atlasesMask
 
 
 
@@ -266,13 +356,13 @@ def RunNN(classes, slices, resize, \
 
         if TRAIN:
             print("Making train set...")
-            datasetTrain = ImgDataSet(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], slices=slices, classes=classes, resize=resize, preproc=Preproc)
+            datasetTrain = ImgDataSet(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], slices=slices, classes=classes, resize=resize, aug=DataAug, preproc=Preproc)
             print("Making train loader...")
             loaderTrain = data.DataLoader(dataset=datasetTrain, batch_size=batchSizeTrain, shuffle=True)
             print("Done")
         if TEST:
             print("Making test set...")
-            datasetTest = ImgDataSet(niisAll["niisDataTest"], niisAll["niisMaskTest"], slices=slices, classes=classes, resize=resize, preproc=Preproc)
+            datasetTest = ImgDataSet(niisAll["niisDataTest"], niisAll["niisMaskTest"], slices=slices, classes=classes, resize=resize, aug=DataAug, preproc=Preproc)
             print("Making test loader...")
             loaderTest = data.DataLoader(dataset=datasetTest, batch_size=1, shuffle=False)
             print("Done")
