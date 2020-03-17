@@ -82,7 +82,7 @@ class ImgDataSet(data.Dataset):
     # Out: ndarray[Slices,(Channels),H,W] dtype=int
     def __getitem__(self, index):  # 返回的是ndarray
         idxWrapper, idxImg = self.__DecodeIndex(index)
-        print("idxWrapper, idxImg: ", idxWrapper, idxImg)
+        #print("idxWrapper, idxImg: ", idxWrapper, idxImg)
         img0, target0 = self.imgDataWrappers[idxWrapper].Get(idxImg,
                                                              self.slices)  # ndarray[H,W,Slice]  ndarray[H,W,Channel]
 
@@ -145,42 +145,28 @@ class ImgDataWrapper():
             ImageProcessor.ShowGrayImgHere(maskTest255, "MASK", (10, 10))
 
         if preproc is not None:
-            self.imgs, self.masks = preproc(self.imgs, self.masks)
+            self.imgs, self.masks = preproc(self.imgs, self.masks, classes)
 
         self.imgs = self.imgs.astype(dtype=imgDataFmt)
         self.masks = self.masks.astype(dtype=maskDataFmt)
 
         # One-hot encoding target
-        if classes > 2:
+        if classes <= 1:
+            raise Exception("Class count = 1. Unable to run! ")
 
-            max = np.max(np.unique(self.imgs))
-            if max > classes:
-                raise Exception("Not enough classes! MaxClassValue: " + str(max))
+        maxClass = np.max(np.unique(self.imgs))
+        if maxClass > classes:
+            raise Exception("Not enough classes! MaxClassValue: " + str(maxClass))
 
-            if DEBUG:
-                maskTest255 = ImageProcessor.MapTo255(self.masks[..., testNum], max=lasses)
-                ImageProcessor.ShowGrayImgHere(maskTest255, "MASK", (10, 10))
+        self.masks = CommonUtil.PackIntoOneHot(self.masks, classes)
 
-            self.masks = CommonUtil.PackIntoOneHot(self.masks, classes)
-
-            # TEST
-            channel1 = self.masks[..., 1, :]
-            # print("channel1",channel1.shape)
-            # print("channel1", np.unique(channel1))
-            if np.all(channel1 == 0):
-                raise Exception("Onehot encoding error! Channel 1 all 0!")
-            # ENDTEST
-
-            if DEBUG:
-                # TEST
-
-                print("self.imgs: ", self.masks.shape)
-                masksTest = np.transpose(self.masks, (3, 2, 0, 1))
-                mask_0_2 = np.transpose(masksTest[testNum, 0:3], (1, 2, 0))
-                mask_3_5 = np.transpose(masksTest[testNum, 3:6], (1, 2, 0))
-                ImageProcessor.ShowClrImgHere(ImageProcessor.MapTo255(mask_0_2), "_0_2_TARG", (10, 10))
-                ImageProcessor.ShowClrImgHere(ImageProcessor.MapTo255(mask_3_5), "_3_5_TARG", (10, 10))
-                # ENDTEST
+        # TEST
+        channel1 = self.masks[..., 1, :]
+        # print("channel1",channel1.shape)
+        # print("channel1", np.unique(channel1))
+        if np.all(channel1 == 0):
+            raise Exception("Onehot encoding error! Channel 1 all 0!")
+        # ENDTEST
 
         # print("self.imgs.shape",self.imgs.shape)
         # print("self.masks.shape",self.masks.shape)

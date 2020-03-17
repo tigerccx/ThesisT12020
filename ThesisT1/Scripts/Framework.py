@@ -21,6 +21,7 @@ import gc
 from Utils import NiiProcessor
 from Utils import ImageProcessor
 from Utils import CommonUtil
+from Utils import CV2ImageProcessor
 
 from DataStructures import ImgDataSet
 from DataStructures import ImgDataWrapper
@@ -175,17 +176,26 @@ def diceCoef(input, target):
 
     return loss
 
-# Input: imgs Grey1 ndarray [H,W,Slice]
-#        masks GreyStep ndarray [H,W,Slice]
-# Preproc deal with Grey1 img and GreyStep mask (return the same format)
-def Preproc(imgs, masks):
 
+'''
+  Prepoc:
+
+  Input: imgs Grey1 ndarray [H,W,Slice]
+         masks GreyStep ndarray [H,W,Slice]
+  Preproc deal with Grey1 img and GreyStep mask (return the same format)
+'''
+# PreprocDistBG: Distinguish BG from unmarked muscle
+def PreprocDistBG(imgs, masks, classes):
     thres = 8
 
     imgs255 = ImageProcessor.MapTo255(imgs)
     imgsU8 = np.asarray(imgs255, np.uint8)
-    masks1 = masks + 1
 
+    if classes<3:
+        raise Exception("Class count not enough to distinguish bg!")
+
+    # Add a channel to onehot
+    masks1 = masks + 1
     for k in range(imgsU8.shape[2]):
         imgsU8[...,k] = cv2.blur(imgsU8[:,:,k], (2,2))
         idxs = np.argwhere(imgsU8[...,k]<=thres)
@@ -194,16 +204,53 @@ def Preproc(imgs, masks):
             val = masks1[idx]
             if val<=1:
                 masks1[idx]=0
-        #masks1[idxs and masks1<=1]=0
-        # for i in range(imgsU8.shape[0]):
-        #     for j in range(imgsU8.shape[1]):
-        #         if imgsU8[i,j,k] <= thres:
-        #             if masks1[i,j,k]<=1:
-        #                 masks1[i,j,k] = 0
+
+    # Map all ignored classes to class 1 (unmarked muscle)
+    classesOrg = len(np.unique(masks1))
+    if classesOrg>3:
+        # print("Class count org > class count:")
+        # print("Map to 0:")
+        for i in range(classesOrg-classes):
+            classNum = 2+i
+            # print("Class ", classNum, "Map to 1")
+            masks1[masks1==classNum] = 1
+        # print("Map down:")
+        for i in range(classes-2):
+            classNum = 2+classesOrg-classes+i
+            masks1[masks1==classNum] -= classesOrg-classes
+            # print("Class ", classNum, classNum-(classesOrg-classes))
 
     imgs1 = ImageProcessor.MapTo1(np.asarray(imgsU8, int))
     return imgs1, masks1
 
+# Preproc0: Not distinguish BG from unmarked muscle
+def Preproc0(imgs, masks, classes):
+
+    imgs255 = ImageProcessor.MapTo255(imgs)
+    imgsU8 = np.asarray(imgs255, np.uint8)
+
+    if classes < 2:
+        raise Exception("Class count not enough!")
+
+    masks1 = masks
+
+    # Map all ignored classes to class 1 (unmarked muscle)
+    classesOrg = len(np.unique(masks1))
+    if classesOrg > 2:
+        # print("Class count org > class count:")
+        # print("Map to 0:")
+        for i in range(classesOrg - classes):
+            classNum = 1 + i
+            # print("Class ", classNum, "Map to 0")
+            masks1[masks1 == classNum] = 0
+        # print("Map down:")
+        for i in range(classes-1):
+            classNum = 1+classesOrg-classes+i
+            masks1[masks1==classNum] -= classesOrg-classes
+            # print("Class ", classNum,  " Map to ",classNum - (classesOrg - classes))
+
+    imgs1 = ImageProcessor.MapTo1(np.asarray(imgsU8, int))
+    return imgs1, masks1
 
 '''
 Aug:
@@ -278,8 +325,8 @@ def DataAug(atlasImg, atlasMask, countAug=1):
         scale = np.random.uniform(0.95, 1.05)
         scale = (scale, scale)
         rot = np.random.uniform(-20.0, 20.0)
-        atlasesImgU8 = np.append(atlasesImgU8, AugCV2(imgsU8, sheer, scale, rot), axis=0)
-        atlasesMaskU8 = np.append(atlasesMaskU8, AugCV2(masksU8, sheer, scale, rot), axis=0)
+        atlasesImgU8 = np.append(atlasesImgU8, AugCV2(imgsU8, sheer, scale, rot, True), axis=0)
+        atlasesMaskU8 = np.append(atlasesMaskU8, AugCV2(masksU8, sheer, scale, rot, False), axis=0)
 
         sheer = (np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1))
         scale = np.random.uniform(0.95, 1.05)
@@ -305,6 +352,7 @@ def DataAug(atlasImg, atlasMask, countAug=1):
 
 
 def RunNN(classes, slices, resize, \
+         aug, preproc,
          trainTestSplit, batchSizeTrain, epochs, learningRate, \
          toTrain, toTest, toSaveOutput, \
          pathModel, pathSrc, pathTarg, \
@@ -356,13 +404,13 @@ def RunNN(classes, slices, resize, \
 
         if TRAIN:
             print("Making train set...")
-            datasetTrain = ImgDataSet(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], slices=slices, classes=classes, resize=resize, aug=DataAug, preproc=Preproc)
+            datasetTrain = ImgDataSet(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], slices=slices, classes=classes, resize=resize, aug=aug, preproc=preproc)
             print("Making train loader...")
             loaderTrain = data.DataLoader(dataset=datasetTrain, batch_size=batchSizeTrain, shuffle=True)
             print("Done")
         if TEST:
             print("Making test set...")
-            datasetTest = ImgDataSet(niisAll["niisDataTest"], niisAll["niisMaskTest"], slices=slices, classes=classes, resize=resize, aug=DataAug, preproc=Preproc)
+            datasetTest = ImgDataSet(niisAll["niisDataTest"], niisAll["niisMaskTest"], slices=slices, classes=classes, resize=resize, aug=aug, preproc=preproc)
             print("Making test loader...")
             loaderTest = data.DataLoader(dataset=datasetTest, batch_size=1, shuffle=False)
             print("Done")
@@ -404,29 +452,6 @@ def RunNN(classes, slices, resize, \
                     # Forward pass through the network.
                     output = net(input)
                     outputNP = output.cpu().detach().numpy()
-
-                    if DEBUG:
-                        print("OUTPUT: \n", output.shape)
-                        print("  ", output.unique())
-
-                    if DEBUG:
-                        for iImg in range(inputNP.shape[0]):
-                            img = np.transpose(inputNP[iImg],(1,2,0))
-                            ImageProcessor.ShowClrImgHere(img, "E"+str(epoch)+"B"+str(i)+"P"+str(iImg),(10,10))
-
-                            mask_0_5 = maskNP[iImg]
-                            mask_0_2 = np.transpose(mask_0_5[0:3], (1,2,0))
-                            mask_3_5 = np.transpose(mask_0_5[3:6], (1, 2, 0))
-                            ImageProcessor.ShowClrImgHere(mask_0_2, "E" + str(epoch) + "B" + str(i) + "P" + str(iImg)+"_0_2_TARG", (10, 10))
-                            ImageProcessor.ShowClrImgHere(mask_3_5, "E" + str(epoch) + "B" + str(i) + "P" + str(iImg) + "_3_5_TARG",(10, 10))
-
-                            out_0_5 = outputNP[iImg]
-                            out_0_2 = np.transpose(out_0_5[0:3], (1, 2, 0))
-                            out_3_5 = np.transpose(out_0_5[3:6], (1, 2, 0))
-                            ImageProcessor.ShowClrImgHere(out_0_2, "E" + str(epoch) + "B" + str(i) + "P" + str(iImg) + "_0_2_OUT",
-                                                          (10, 10))
-                            ImageProcessor.ShowClrImgHere(out_3_5, "E" + str(epoch) + "B" + str(i) + "P" + str(iImg) + "_3_5_OUT",
-                                                          (10, 10))
 
 
                     # output = output.flatten(start_dim=2)
@@ -644,7 +669,49 @@ def TestNetwork():
     # Used(MB): 667.7109375
     # Free(MB): 1380.2890625
 
+# Run net
 def Main():
+    # Rand Seed
+    randSeed = 0
+
+    # Train or Test
+    toTrain = True
+    toTest = True
+
+    toSaveOutput = True  # True
+
+    #
+    # Param Setting
+    #
+    #   Running Params
+    classes = 7
+    trainTestSplit = 0.8
+    batchSizeTrain = 8
+    slices = 3
+    resize = (256, 256)  # None
+    epochs = 50
+    learningRate = 0.001
+    dataFmt = "float32"
+
+    pathModel = "./model.pth"  # "./model_D2.pth"#"./model.pth"#"./model_6.pth"
+    pathSrc = "../../../Sources/Data/data_nii"
+    pathTarg = "../../../Sources/Data/output"  # "../../../Sources/Data/output_D2"#"../../../Sources/Data/output"#"../../../Sources/Data/output_6"
+
+    accuracy, dice = RunNN(classes, slices, resize, \
+                           DataAug, PreprocDistBG,
+                           trainTestSplit, batchSizeTrain, epochs, learningRate, \
+                           toTrain, toTest, toSaveOutput, \
+                           pathModel, pathSrc, pathTarg, \
+                           dataFmt, randSeed)
+    print("Classification accuracy: ", accuracy)
+
+    print("Dice Coef:")
+
+    for j in range(classes):
+        print("Class ", j, ": ", dice[j])
+
+# Test train split compare
+def Main0():
     # Rand Seed
     randSeed = 0
 
@@ -700,6 +767,7 @@ def Main():
             print("Run: ", count)
             trainTestSplit = XRate[i]
             accuracy, dice = RunNN(classes, slices, resize, \
+                  DataAug, PreprocDistBG, \
                   trainTestSplit, batchSizeTrain, epochs, learningRate, \
                   toTrain, toTest, toSaveOutput, \
                   pathModel, pathSrc, pathTarg, \
@@ -762,9 +830,160 @@ def Main():
             plt.scatter(X, Y, marker='x')
         plt.show()
 
+# Test dist or not dist BG
+def Main1():
+    # Rand Seed
+    randSeed = 0
+
+    # Train or Test
+    toTrain = True
+    toTest = True
+
+    toSaveOutput = False
+
+    #
+    # Param Setting
+    #
+    #   Running Params
+    trainTestSplit = 0.8
+    batchSizeTrain = 8
+    slices = 3
+    resize = (256, 256)  # None
+    epochs = 50
+    learningRate = 0.001
+    dataFmt = "float32"
+
+    pathModel = "./model_test.pth"  # "./model_D2.pth"#"./model.pth"#"./model_6.pth"
+    pathSrc = "../../../Sources/Data/data_nii"
+    pathTarg = "../../../Sources/Data/output_test"  # "../../../Sources/Data/output_D2"#"../../../Sources/Data/output"#"../../../Sources/Data/output_6"
+
+
+    countRun = 3
+
+    classesNDBG = 6
+    accNDBG = np.zeros(countRun)
+    dicesNDBG = np.zeros((countRun, classesNDBG))
+    classes = 7
+    acc = np.zeros(countRun)
+    dices = np.zeros((countRun, classes))
+
+    # NDBG
+    for i in range(countRun):
+        accuracy, dice = RunNN(classesNDBG, slices, resize, \
+                               None, Preproc0,
+                               trainTestSplit, batchSizeTrain, epochs, learningRate, \
+                               toTrain, toTest, toSaveOutput, \
+                               pathModel, pathSrc, pathTarg, \
+                               dataFmt, randSeed)
+
+        print("Classification accuracy: ", accuracy)
+
+        print("Dice Coef:")
+
+        for j in range(classesNDBG):
+            print("Class ", j, ": ", dice[j])
+
+        accNDBG[i] = accuracy
+        for j in range(classesNDBG):
+            dicesNDBG[i, j] = dice[j]
+
+    # Usual
+    for i in range(countRun):
+        accuracy, dice = RunNN(classes, slices, resize, \
+                               None, PreprocDistBG,
+                               trainTestSplit, batchSizeTrain, epochs, learningRate, \
+                               toTrain, toTest, toSaveOutput, \
+                               pathModel, pathSrc, pathTarg, \
+                               dataFmt, randSeed)
+
+        print("Classification accuracy: ", accuracy)
+
+        print("Dice Coef:")
+
+        for j in range(classes):
+            print("Class ", j, ": ", dice[j])
+
+        acc[i] = accuracy
+        for j in range(classes):
+            dices[i, j] = dice[j]
+
+
+
+
+    print("*"*66)
+    print("NDBG:")
+    print("Classification accuracy: ", accNDBG)
+
+    print("Dice Coef:")
+    for j in range(classesNDBG):
+        print("Class ", j, ": ", dicesNDBG[:, j])
+
+    print("Acc Ave: ", np.sum(accNDBG)/countRun)
+    print("Dice Ave:")
+    for j in range(classesNDBG):
+        print("Class ", j, ": ", np.sum(dicesNDBG[:, j])/countRun)
+
+
+    print("*" * 66)
+    print("Usual:")
+    print("Classification accuracy: ", acc)
+
+    print("Dice Coef:")
+    for j in range(classes):
+        print("Class ", j, ": ", dices[:, j])
+
+    print("Acc Ave: ", np.sum(acc) / countRun)
+    print("Dice Ave:")
+    for j in range(classes):
+        print("Class ", j, ": ", np.sum(dices[:, j]) / countRun)
+
+# Test marking all classes against marking target class
+def Main2():
+    # Rand Seed
+    randSeed = 0
+
+    # Train or Test
+    toTrain = True
+    toTest = True
+
+    toSaveOutput = True
+
+    #
+    # Param Setting
+    #
+    #   Running Params
+    trainTestSplit = 0.8
+    batchSizeTrain = 8
+    slices = 3
+    resize = (256, 256)  # None
+    epochs = 50
+    learningRate = 0.001
+    dataFmt = "float32"
+
+    pathModel = "./model_test.pth"
+    pathSrc = "../../../Sources/Data/data_nii"
+    pathTarg = "../../../Sources/Data/output_test_0"
+
+    classes = 2
+
+    accuracy, dice = RunNN(classes, slices, resize, \
+                           None, Preproc0,
+                           trainTestSplit, batchSizeTrain, epochs, learningRate, \
+                           toTrain, toTest, toSaveOutput, \
+                           pathModel, pathSrc, pathTarg, \
+                           dataFmt, randSeed)
+
+    print("Classification accuracy: ", accuracy)
+
+    print("Dice Coef:")
+
+    for j in range(classes):
+        print("Class ", j, ": ", dice[j])
 
 if __name__ == '__main__':
-    Main()
+    #Main0()
+    #Main1()
+    Main2()
     # TestNiiWrapper()
     #TestImgDataSet()
     #TestNetwork()

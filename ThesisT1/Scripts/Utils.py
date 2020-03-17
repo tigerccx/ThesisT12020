@@ -244,6 +244,7 @@ class CommonUtil():
 
     # In: ndarray[H,W,Slices] dtype=int
     # Out: ndarray[H,W,Channels,Slices] dtype=int
+    # Note: countClasses must be larger than max(imgs)
     @staticmethod
     def PackIntoOneHot(imgs, countClasses):
         # self.imgs = np.asarray([[[np.eye(countClasses)[self.imgs[x, y, z]] \
@@ -251,11 +252,16 @@ class CommonUtil():
         #                          for y in range(self.imgs.shape[1])] \
         #                         for x in range(self.imgs.shape[0])], \
         #                        dtype="bool")
+        if np.max(imgs) > countClasses:
+            raise Exception("Class count is smaller than max val in image!")
+
         imgs1 = np.zeros((imgs.shape[0], imgs.shape[1], countClasses, imgs.shape[2]), dtype=int)
+
         for x in range(imgs.shape[0]):
             for y in range(imgs.shape[1]):
                 for z in range(imgs.shape[2]):
                     imgs1[x, y, int(imgs[x, y, z]), z] = 1
+
         return imgs1
 
     # In: ndarray[H,W,Channels,Slices] dtype=int
