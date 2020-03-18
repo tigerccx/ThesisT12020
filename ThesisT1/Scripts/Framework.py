@@ -499,6 +499,7 @@ def RunNN(classes, slices, resize, \
                 dirRL,filenameRL = os.path.split(pathRunningLossPlot)
                 CommonUtil.Mkdir(dirRL)
                 plt.savefig(pathRunningLossPlot)
+                plt.cla()
 
         if not TRAIN and TEST:
             net.load_state_dict(torch.load(pathModel))
