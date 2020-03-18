@@ -354,8 +354,8 @@ def DataAug(atlasImg, atlasMask, countAug=1):
 def RunNN(classes, slices, resize, \
          aug, preproc,
          trainTestSplit, batchSizeTrain, epochs, learningRate, \
-         toTrain, toTest, toSaveOutput, \
-         pathModel, pathSrc, pathTarg, \
+         toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
+         pathModel, pathSrc, pathTarg, pathRunningLossPlot, \
          dataFmt="float32", randSeed=0):
     #
     # Main
@@ -366,6 +366,7 @@ def RunNN(classes, slices, resize, \
     TRAIN = toTrain
     TEST = toTest
     SAVE_OUTPUT = toSaveOutput
+    SAVE_LOSS = toSaveRunnningLoss
 
     pathSrcData = os.path.join(pathSrc, "data")
     pathSrcMask = os.path.join(pathSrc, "masks")
@@ -421,11 +422,12 @@ def RunNN(classes, slices, resize, \
         if TRAIN:
             criterion = LossFunc
             optimiser = topti.Adam(net.parameters(), lr=learningRate)  # Minimise the loss using the Adam algorithm.
+            if SAVE_LOSS:
+                runningLoss = np.zeros(epochs, dtype=np.float32)
 
             for epoch in range(epochs):
                 print("Running epoch: ",epoch+1)
-                running_loss = 0
-                epo_loss = 0
+                epoLoss = 0
                 batchCount = 0
 
                 for i, batch in enumerate(loaderTrain):
@@ -471,21 +473,32 @@ def RunNN(classes, slices, resize, \
                     ls = loss.item()
                     if printLossPerBatch:
                         print("LOSS: ", ls)
-                    running_loss += ls
-                    epo_loss += ls
+                    epoLoss += ls
                     batchCount+=1
 
-                    if printLossPerFewBatches:
-                        if i % batchPerSummary == batchPerSummary-1:
-                            print("Summary: Epoch: %2d, Batch: %4d, Loss: %f" % (epoch + 1, i + 1, running_loss / batchPerSummary))
-                            running_loss = 0
-
-                print("Epoch Summary: Epoch: %2d, Loss: %f" % (epoch + 1, epo_loss / batchCount))
+                epoLoss = epoLoss / batchCount
+                print("Epoch Summary: Epoch: %2d, Loss: %f" % (epoch + 1, epoLoss))
                 print("-" * 30)
+                if SAVE_LOSS:
+                    runningLoss[epoch] = epoLoss
 
             # Save mode
+            dirMdl, filenameMdl = os.path.split(pathModel)
+            CommonUtil.Mkdir(dirMdl)
             torch.save(net.state_dict(), pathModel)
             print("Saved model")
+
+            if SAVE_LOSS:
+                # Output Running Loss
+                X = np.arange(1,epochs+1,1)
+                Y = runningLoss
+                plt.title("Running Loss")
+                plt.plot(X,Y)
+                plt.xlabel("Epoch")
+                plt.ylabel("Loss")
+                dirRL,filenameRL = os.path.split(pathRunningLossPlot)
+                CommonUtil.Mkdir(dirRL)
+                plt.savefig(pathRunningLossPlot)
 
         if not TRAIN and TEST:
             net.load_state_dict(torch.load(pathModel))
@@ -677,7 +690,7 @@ def Main():
     # Train or Test
     toTrain = True
     toTest = True
-
+    toSaveRunnningLoss = True
     toSaveOutput = True  # True
 
     #
@@ -696,12 +709,13 @@ def Main():
     pathModel = "./model.pth"  # "./model_D2.pth"#"./model.pth"#"./model_6.pth"
     pathSrc = "../../../Sources/Data/data_nii"
     pathTarg = "../../../Sources/Data/output"  # "../../../Sources/Data/output_D2"#"../../../Sources/Data/output"#"../../../Sources/Data/output_6"
+    pathRunningLossPlot = "../../../Sources/Data/loss/loss.jpg"
 
     accuracy, dice = RunNN(classes, slices, resize, \
                            DataAug, PreprocDistBG,
                            trainTestSplit, batchSizeTrain, epochs, learningRate, \
-                           toTrain, toTest, toSaveOutput, \
-                           pathModel, pathSrc, pathTarg, \
+                           toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
+                           pathModel, pathSrc, pathTarg, pathRunningLossPlot, \
                            dataFmt, randSeed)
     print("Classification accuracy: ", accuracy)
 
@@ -718,7 +732,7 @@ def Main0():
     # Train or Test
     toTrain = True
     toTest = True
-
+    toSaveRunnningLoss = True
     toSaveOutput = False#True
 
     #
@@ -734,7 +748,9 @@ def Main0():
     learningRate = 0.001
     dataFmt = "float32"
 
-    pathModel = "./model_temp.pth"  # "./model_D2.pth"#"./model.pth"#"./model_6.pth"
+    dirModel = "../../../Sources/Net/CompareTrainSplit"
+    dirLoss = "../../../Sources/Data/loss/CompareTrainSplit"
+
     pathSrc = "../../../Sources/Data/data_nii"
     pathTarg = "../../../Sources/Data/output_temp"  # "../../../Sources/Data/output_D2"#"../../../Sources/Data/output"#"../../../Sources/Data/output_6"
 
@@ -762,6 +778,11 @@ def Main0():
         diceAve = np.zeros(classes)
 
         for count in range(countRun):
+            fnModel = "model_Split"+str(i)+"_Run"+str(count) + ".pth"
+            fnLoss = "loss_Split"+str(i)+"_Run"+str(count) + ".jpg"
+            pathModel = os.path.join(dirModel, fnModel)
+            pathRunningLossPlot = os.path.join(dirLoss, fnLoss)
+
             print("\n")
             print("*" * 44)
             print("Run: ", count)
@@ -769,8 +790,8 @@ def Main0():
             accuracy, dice = RunNN(classes, slices, resize, \
                   DataAug, PreprocDistBG, \
                   trainTestSplit, batchSizeTrain, epochs, learningRate, \
-                  toTrain, toTest, toSaveOutput, \
-                  pathModel, pathSrc, pathTarg, \
+                  toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
+                  pathModel, pathSrc, pathTarg, pathRunningLossPlot, \
                   dataFmt, randSeed)
             print("Classification accuracy: ", accuracy)
 
@@ -838,7 +859,7 @@ def Main1():
     # Train or Test
     toTrain = True
     toTest = True
-
+    toSaveRunnningLoss = True
     toSaveOutput = False
 
     #
@@ -853,7 +874,6 @@ def Main1():
     learningRate = 0.001
     dataFmt = "float32"
 
-    pathModel = "./model_test.pth"  # "./model_D2.pth"#"./model.pth"#"./model_6.pth"
     pathSrc = "../../../Sources/Data/data_nii"
     pathTarg = "../../../Sources/Data/output_test"  # "../../../Sources/Data/output_D2"#"../../../Sources/Data/output"#"../../../Sources/Data/output_6"
 
@@ -869,11 +889,13 @@ def Main1():
 
     # NDBG
     for i in range(countRun):
+        pathModel = "../../../Sources/Net/PredictingAllLabels/model_C6_" + str(i) + ".pth"
+        pathRunningLossPlot = "../../../Sources/Data/loss/PredictingAllLabels/loss_C6_" + str(i) + ".jpg"
         accuracy, dice = RunNN(classesNDBG, slices, resize, \
                                None, Preproc0,
                                trainTestSplit, batchSizeTrain, epochs, learningRate, \
-                               toTrain, toTest, toSaveOutput, \
-                               pathModel, pathSrc, pathTarg, \
+                               toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
+                               pathModel, pathSrc, pathTarg, pathRunningLossPlot, \
                                dataFmt, randSeed)
 
         print("Classification accuracy: ", accuracy)
@@ -889,11 +911,13 @@ def Main1():
 
     # Usual
     for i in range(countRun):
+        pathModel = "../../../Sources/Net/PredictingAllLabels/model_C7_" + str(i) + ".pth"
+        pathRunningLossPlot = "../../../Sources/Data/loss/PredictingAllLabels/loss_C7_" + str(i) + ".jpg"
         accuracy, dice = RunNN(classes, slices, resize, \
                                None, PreprocDistBG,
                                trainTestSplit, batchSizeTrain, epochs, learningRate, \
-                               toTrain, toTest, toSaveOutput, \
-                               pathModel, pathSrc, pathTarg, \
+                               toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
+                               pathModel, pathSrc, pathTarg, pathRunningLossPlot, \
                                dataFmt, randSeed)
 
         print("Classification accuracy: ", accuracy)
@@ -906,9 +930,6 @@ def Main1():
         acc[i] = accuracy
         for j in range(classes):
             dices[i, j] = dice[j]
-
-
-
 
     print("*"*66)
     print("NDBG:")
@@ -937,15 +958,58 @@ def Main1():
     for j in range(classes):
         print("Class ", j, ": ", np.sum(dices[:, j]) / countRun)
 
-# Test marking all classes against marking target class
+# Test loss print
 def Main2():
     # Rand Seed
     randSeed = 0
 
     # Train or Test
     toTrain = True
+    toSaveRunnningLoss = True
     toTest = True
+    toSaveOutput = True  # True
 
+    #
+    # Param Setting
+    #
+    #   Running Params
+    classes = 6
+    trainTestSplit = 0.8
+    batchSizeTrain = 8
+    slices = 3
+    resize = (256, 256)  # None
+    epochs = 50
+    learningRate = 0.001
+    dataFmt = "float32"
+
+    pathModel = "./model_C6.pth"  # "./model_D2.pth"#"./model.pth"#"./model_6.pth"
+    pathSrc = "../../../Sources/Data/data_nii"
+    pathTarg = "../../../Sources/Data/output_C6"  # "../../../Sources/Data/output_D2"#"../../../Sources/Data/output"#"../../../Sources/Data/output_6"
+    pathRunningLossPlot = "../../../Sources/Data/loss/loss_C6.jpg"
+
+    accuracy, dice = RunNN(classes, slices, resize, \
+                           None, Preproc0,
+                           trainTestSplit, batchSizeTrain, epochs, learningRate, \
+                           toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
+                           pathModel, pathSrc, pathTarg, pathRunningLossPlot, \
+                           dataFmt, randSeed)
+
+    print("Classification accuracy: ", accuracy)
+
+    print("Dice Coef:")
+
+    for j in range(classes):
+        print("Class ", j, ": ", dice[j])
+
+# Test marking only target class (Distinguish BG and not)
+def Main3():
+    # Rand Seed
+    randSeed = 0
+
+    # Train or Test
+    toTrain = True
+    toTest = True
+    toSaveRunnningLoss = True
     toSaveOutput = True
 
     #
@@ -960,30 +1024,93 @@ def Main2():
     learningRate = 0.001
     dataFmt = "float32"
 
-    pathModel = "./model_test.pth"
     pathSrc = "../../../Sources/Data/data_nii"
     pathTarg = "../../../Sources/Data/output_test_0"
 
-    classes = 2
+    countRun = 3
 
-    accuracy, dice = RunNN(classes, slices, resize, \
-                           None, Preproc0,
-                           trainTestSplit, batchSizeTrain, epochs, learningRate, \
-                           toTrain, toTest, toSaveOutput, \
-                           pathModel, pathSrc, pathTarg, \
-                           dataFmt, randSeed)
+    classesNDBG = 2
+    accNDBG = np.zeros(countRun)
+    dicesNDBG = np.zeros((countRun, classesNDBG))
+    classes = 3
+    acc = np.zeros(countRun)
+    dices = np.zeros((countRun, classes))
 
-    print("Classification accuracy: ", accuracy)
+    # NDBG
+    for i in range(countRun):
+        pathModel = "../../../Sources/Net/PredictingOnlyTarget/model_C2_"+str(i)+".pth"
+        pathRunningLossPlot = "../../../Sources/Data/loss/PredictingOnlyTarget/loss_C2_"+str(i)+".jpg"
+        accuracy, dice = RunNN(classesNDBG, slices, resize, \
+                               None, Preproc0,
+                               trainTestSplit, batchSizeTrain, epochs, learningRate, \
+                               toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
+                               pathModel, pathSrc, pathTarg, pathRunningLossPlot, \
+                               dataFmt, randSeed)
+
+        print("Classification accuracy: ", accuracy)
+
+        print("Dice Coef:")
+
+        for j in range(classesNDBG):
+            print("Class ", j, ": ", dice[j])
+
+        accNDBG[i] = accuracy
+        for j in range(classesNDBG):
+            dicesNDBG[i, j] = dice[j]
+
+    # Usual
+    for i in range(countRun):
+        pathModel = "../../../Sources/Net/PredictingOnlyTarget/model_C3_" + str(i) + ".pth"
+        pathRunningLossPlot = "../../../Sources/Data/loss/PredictingOnlyTarget/loss_C3_" + str(i) + ".jpg"
+        accuracy, dice = RunNN(classes, slices, resize, \
+                               None, PreprocDistBG,
+                               trainTestSplit, batchSizeTrain, epochs, learningRate, \
+                               toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
+                               pathModel, pathSrc, pathTarg, pathRunningLossPlot, \
+                               dataFmt, randSeed)
+
+        print("Classification accuracy: ", accuracy)
+
+        print("Dice Coef:")
+
+        for j in range(classes):
+            print("Class ", j, ": ", dice[j])
+
+        acc[i] = accuracy
+        for j in range(classes):
+            dices[i, j] = dice[j]
+
+    print("*" * 66)
+    print("NDBG:")
+    print("Classification accuracy: ", accNDBG)
 
     print("Dice Coef:")
+    for j in range(classesNDBG):
+        print("Class ", j, ": ", dicesNDBG[:, j])
 
+    print("Acc Ave: ", np.sum(accNDBG) / countRun)
+    print("Dice Ave:")
+    for j in range(classesNDBG):
+        print("Class ", j, ": ", np.sum(dicesNDBG[:, j]) / countRun)
+
+    print("*" * 66)
+    print("Usual:")
+    print("Classification accuracy: ", acc)
+
+    print("Dice Coef:")
     for j in range(classes):
-        print("Class ", j, ": ", dice[j])
+        print("Class ", j, ": ", dices[:, j])
+
+    print("Acc Ave: ", np.sum(acc) / countRun)
+    print("Dice Ave:")
+    for j in range(classes):
+        print("Class ", j, ": ", np.sum(dices[:, j]) / countRun)
 
 if __name__ == '__main__':
     #Main0()
     #Main1()
-    Main2()
+    #Main2()
+    Main3()
     # TestNiiWrapper()
     #TestImgDataSet()
     #TestNetwork()
