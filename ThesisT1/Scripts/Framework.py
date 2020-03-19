@@ -13,8 +13,6 @@ import torch.optim as topti
 from torchsummary import summary
 from matplotlib import pylab as plt
 
-import cv2
-
 import pynvml
 import gc
 
@@ -25,6 +23,10 @@ from Utils import CV2ImageProcessor
 
 from DataStructures import ImgDataSet
 from DataStructures import ImgDataWrapper
+
+from DataAugAndPreProc import PreprocDistBG
+from DataAugAndPreProc import Preproc0
+from DataAugAndPreProc import DataAug
 
 from LossFunc import MulticlassDiceLoss
 
@@ -177,174 +179,6 @@ def diceCoef(input, target):
     return loss
 
 
-'''
-  Prepoc:
-
-  Input: imgs Grey1 ndarray [H,W,Slice]
-         masks GreyStep ndarray [H,W,Slice]
-  Preproc deal with Grey1 img and GreyStep mask (return the same format)
-'''
-# PreprocDistBG: Distinguish BG from unmarked muscle
-def PreprocDistBG(imgs, masks, classes):
-    thres = 8
-
-    imgs255 = ImageProcessor.MapTo255(imgs)
-    imgsU8 = np.asarray(imgs255, np.uint8)
-
-    if classes<3:
-        raise Exception("Class count not enough to distinguish bg!")
-
-    # Add a channel to onehot
-    masks1 = masks + 1
-    for k in range(imgsU8.shape[2]):
-        imgsU8[...,k] = cv2.blur(imgsU8[:,:,k], (2,2))
-        idxs = np.argwhere(imgsU8[...,k]<=thres)
-        for idx in idxs:
-            idx = tuple(idx)+(k,)
-            val = masks1[idx]
-            if val<=1:
-                masks1[idx]=0
-
-    # Map all ignored classes to class 1 (unmarked muscle)
-    classesOrg = len(np.unique(masks1))
-    if classesOrg>3:
-        # print("Class count org > class count:")
-        # print("Map to 0:")
-        for i in range(classesOrg-classes):
-            classNum = 2+i
-            # print("Class ", classNum, "Map to 1")
-            masks1[masks1==classNum] = 1
-        # print("Map down:")
-        for i in range(classes-2):
-            classNum = 2+classesOrg-classes+i
-            masks1[masks1==classNum] -= classesOrg-classes
-            # print("Class ", classNum, classNum-(classesOrg-classes))
-
-    imgs1 = ImageProcessor.MapTo1(np.asarray(imgsU8, int))
-    return imgs1, masks1
-
-# Preproc0: Not distinguish BG from unmarked muscle
-def Preproc0(imgs, masks, classes):
-
-    imgs255 = ImageProcessor.MapTo255(imgs)
-    imgsU8 = np.asarray(imgs255, np.uint8)
-
-    if classes < 2:
-        raise Exception("Class count not enough!")
-
-    masks1 = masks
-
-    # Map all ignored classes to class 1 (unmarked muscle)
-    classesOrg = len(np.unique(masks1))
-    if classesOrg > 2:
-        # print("Class count org > class count:")
-        # print("Map to 0:")
-        for i in range(classesOrg - classes):
-            classNum = 1 + i
-            # print("Class ", classNum, "Map to 0")
-            masks1[masks1 == classNum] = 0
-        # print("Map down:")
-        for i in range(classes-1):
-            classNum = 1+classesOrg-classes+i
-            masks1[masks1==classNum] -= classesOrg-classes
-            # print("Class ", classNum,  " Map to ",classNum - (classesOrg - classes))
-
-    imgs1 = ImageProcessor.MapTo1(np.asarray(imgsU8, int))
-    return imgs1, masks1
-
-'''
-Aug:
-    Org:
-    dataOrg
-    Flip
-    dataFlip
-    for dataOrg and data Flip:
-        Rand x4 : Sheer(-0.1:0.1,-0.1:0.1),Scale(0.95,0.105),Rot(-20,20)
-'''
-
-
-# In: ndarray[H,W,Slice] dtype=uint8
-# Out: ndarray[CountAug,H,W,Slice] dtype=uint8
-def AugCV2(imgsCV2, sheer, scale, rot, isImg):
-    interpolation = None
-    if isImg:
-        interpolation = cv2.INTER_LINEAR
-    else:
-        interpolation = cv2.INTER_NEAREST
-    atlasesCV2 = np.empty((0,) + imgsCV2.shape)
-    imgsCV2Aug = np.empty(imgsCV2.shape)
-    for j in range(imgsCV2.shape[2]):
-        imgsCV2Aug[..., j] = CV2ImageProcessor.Rotate(CV2ImageProcessor.ScaleAtCenter(
-            CV2ImageProcessor.Sheer(imgsCV2[..., j], sheer, interpolation=interpolation), scale,
-            interpolation=interpolation), rot, interpolation=interpolation)
-
-    atlasesCV2 = np.append(atlasesCV2, np.asarray([imgsCV2Aug]), axis=0)
-    return atlasesCV2
-
-
-# In: ndarray[H,W,Slice] fmt=Grey1
-#     ndarray[H,W,Slice] fmt=GreyStep
-# Out: ndarray[CountAug,H,W,Slice] fmt=Grey1
-#      ndarray[CountAug,H,W,Slice] fmt=GreyStep
-# DataAug: function for data augmentation
-def DataAug(atlasImg, atlasMask, countAug=1):
-    imgs255 = ImageProcessor.MapTo255(atlasImg)
-    imgsU8 = np.asarray(imgs255, np.uint8)
-
-    masks255 = ImageProcessor.MapTo255(atlasMask)
-    masksU8 = np.asarray(masks255, np.uint8)
-
-    #     atlasesImgU8 = AugCV2(imgsU8)
-    #     atlasesMaskU8 = AugCV2(masksU8)
-
-    '''
-    Aug:
-        Org:
-        dataOrg
-        Flip
-        dataFlip
-        for dataOrg and data Flip:
-            Rand x4 : Sheer(-0.1:0.1,-0.1:0.1),Scale(0.95,1.05),Rot(-20,20)
-    '''
-
-    atlasesImgU8 = np.array([imgsU8], dtype=np.uint8)
-    atlasesMaskU8 = np.array([masksU8], dtype=np.uint8)
-
-    imgsU8Flip = np.empty(imgsU8.shape)
-    for i in range(imgsU8.shape[2]):
-        imgsU8Flip[..., i] = CV2ImageProcessor.Flip(imgsU8[..., i], 0)
-    atlasesImgU8 = np.append(atlasesImgU8, np.asarray([imgsU8Flip]), axis=0)
-
-    masksU8Flip = np.empty(masksU8.shape)
-    for i in range(masksU8.shape[2]):
-        masksU8Flip[..., i] = CV2ImageProcessor.Flip(masksU8[..., i], 0)
-    atlasesMaskU8 = np.append(atlasesMaskU8, np.asarray([masksU8Flip]), axis=0)
-
-    for i in range(countAug):
-        sheer = (np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1))
-        scale = np.random.uniform(0.95, 1.05)
-        scale = (scale, scale)
-        rot = np.random.uniform(-20.0, 20.0)
-        atlasesImgU8 = np.append(atlasesImgU8, AugCV2(imgsU8, sheer, scale, rot, True), axis=0)
-        atlasesMaskU8 = np.append(atlasesMaskU8, AugCV2(masksU8, sheer, scale, rot, False), axis=0)
-
-        sheer = (np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1))
-        scale = np.random.uniform(0.95, 1.05)
-        scale = (scale, scale)
-        rot = np.random.uniform(-20.0, 20.0)
-        atlasesImgU8 = np.append(atlasesImgU8, AugCV2(imgsU8Flip, sheer, scale, rot, True), axis=0)
-        atlasesMaskU8 = np.append(atlasesMaskU8, AugCV2(masksU8Flip, sheer, scale, rot, False), axis=0)
-
-    atlasesImg255 = np.asarray(atlasesImgU8, np.int16)
-    atlasesMask255 = np.asarray(atlasesMaskU8, np.int16)
-
-    atlasesImg = ImageProcessor.MapTo1(atlasesImg255)
-    atlasesMask = ImageProcessor.MapToGreyStep(atlasesMask255)
-
-    return atlasesImg, atlasesMask
-
-
-
 #TODO: Add Temp for processed files
 #TODO: Add augmentationn
 #TODO: Try transfer learning
@@ -354,7 +188,7 @@ def DataAug(atlasImg, atlasMask, countAug=1):
 def RunNN(classes, slices, resize, \
          aug, preproc,
          trainTestSplit, batchSizeTrain, epochs, learningRate, \
-         toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
+         toSaveData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
          pathModel, pathSrc, pathTarg, pathRunningLossPlot, \
          dataFmt="float32", randSeed=0):
     #
@@ -363,6 +197,7 @@ def RunNN(classes, slices, resize, \
 
     np.random.seed(randSeed)
 
+    SAVE_DATA = toSaveData
     TRAIN = toTrain
     TEST = toTest
     SAVE_OUTPUT = toSaveOutput
@@ -371,14 +206,31 @@ def RunNN(classes, slices, resize, \
     pathSrcData = os.path.join(pathSrc, "data")
     pathSrcMask = os.path.join(pathSrc, "masks")
 
+    print(pathSrcData)
+    print(pathSrcMask)
+    print(os.listdir("../../../Sources/Data"))
+    print(os.listdir(pathSrcData))
+
     #   Printing Param
     printLossPerBatch = False
 
-    printLossPerFewBatches = False
-    batchPerSummary = 8
-
     accuracy = None
     dice = None
+
+    if TRAIN or TEST or SAVE_DATA:
+        #
+        # Prepare Dataset
+        #
+        # Load nii
+
+        niisData = NiiProcessor.ReadAllNiiInDir(pathSrcData)
+        niisMask = NiiProcessor.ReadAllNiiInDir(pathSrcMask)
+
+        print("Data to read: ")
+        print(niisData)
+        print(niisMask)
+        # Split train set and test set
+        niisAll = ImgDataSet.Split(niisData, niisMask, trainTestSplit)
 
     if TRAIN or TEST:
 
@@ -388,16 +240,7 @@ def RunNN(classes, slices, resize, \
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")#torch.device("cpu")
         print("Device: ", str(device))
 
-        #
-        # Prepare Dataset
-        #
-        # Load nii
 
-        niisData = NiiProcessor.ReadAllNiiInDir(pathSrcData)
-        niisMask = NiiProcessor.ReadAllNiiInDir(pathSrcMask)
-
-        # Split train set and test set
-        niisAll = ImgDataSet.Split(niisData, niisMask, trainTestSplit)
 
         # Create DataLoaders
         # TODO: 使用torchvision?
@@ -1108,10 +951,11 @@ def Main3():
         print("Class ", j, ": ", np.sum(dices[:, j]) / countRun)
 
 if __name__ == '__main__':
+    Main()
     #Main0()
     #Main1()
     #Main2()
-    Main3()
+    #Main3()
     # TestNiiWrapper()
     #TestImgDataSet()
     #TestNetwork()

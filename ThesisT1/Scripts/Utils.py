@@ -5,6 +5,8 @@ import cv2
 import matplotlib.cm as cm
 import copy
 
+import gc
+
 import torch
 
 from matplotlib import pylab as plt
@@ -123,7 +125,6 @@ class ImageProcessor():
         else:
             arrMax = np.amax(arr)
         arrG = (arr-min) / (arrMax-min)
-        arrG = arrG
         return  arrG
 
     @staticmethod
@@ -299,8 +300,10 @@ class CV2ImageProcessor():
     @staticmethod
     def Translate(imgCV2, translation, interpolation=cv2.INTER_LINEAR):
         mTranslate = np.array([[1, 0, translation[0]], [0, 1, translation[1]]], dtype="float32")
-        imgCV2Rot = cv2.warpAffine(imgCV2, mTranslate, imgCV2.shape, flags=interpolation)
-        return imgCV2Rot
+        imgCV2Translate = cv2.warpAffine(imgCV2, mTranslate, imgCV2.shape, flags=interpolation)
+        del(imgCV2)
+        gc.collect()
+        return imgCV2Translate
 
     # In: imgCV2: ndarray[] dtype = uint8
     #     angle: float
@@ -314,6 +317,8 @@ class CV2ImageProcessor():
             center = (w / 2, h / 2)
         mRot = cv2.getRotationMatrix2D(center, angle, scale)
         imgCV2Rot = cv2.warpAffine(imgCV2, mRot, (w, h), flags=interpolation)
+        del (imgCV2)
+        gc.collect()
         return imgCV2Rot
 
     @staticmethod
@@ -345,6 +350,8 @@ class CV2ImageProcessor():
         imgCV2Scale = np.zeros(imgCV2.shape, dtype=np.uint8)
         scaledSize = (int(imgCV2.shape[0] * scale2D[1]), int(imgCV2.shape[1] * scale2D[0]))  # (h,w)
         imgCV2Scale0 = cv2.resize(imgCV2, scaledSize, interpolation=interpolation)
+        del (imgCV2)
+        gc.collect()
 
         center = (int(imgCV2Scale.shape[1] / 2), int(imgCV2Scale.shape[0] / 2))
 
@@ -354,6 +361,8 @@ class CV2ImageProcessor():
         t0, b0, l0, r0 = CV2ImageProcessor.__ClampSizeWithCenter(center0, imgCV2Scale.shape, imgCV2Scale0.shape)
 
         imgCV2Scale[t:b, l:r, ...] = imgCV2Scale0[t0:b0, l0:r0, ...]
+        del(imgCV2Scale0)
+        gc.collect()
         return imgCV2Scale
 
     # In: imgCV2: ndarray[] dtype = uint8
@@ -365,13 +374,18 @@ class CV2ImageProcessor():
         targ = np.array([(-sheer2D[1], sheer2D[0]), (0, 1 + sheer2D[0]), (1 - sheer2D[1], 0)], dtype="float32")
         mSheer = cv2.getAffineTransform(src, targ)
         imgCV2Sheer = cv2.warpAffine(imgCV2, mSheer, imgCV2.shape, flags=interpolation)
+        del (imgCV2)
+        gc.collect()
         return imgCV2Sheer
 
     # In: imgCV2: ndarray[] dtype = uint8
     #     flipCode: 0:vert 1:horz -1:both
     # Out: ndarray[] dtype = uint8
+    @staticmethod
     def Flip(imgCV2, flipCode):
         imgCV2Flip = cv2.flip(imgCV2, flipCode)
+        del (imgCV2)
+        gc.collect()
         return imgCV2Flip
 
 

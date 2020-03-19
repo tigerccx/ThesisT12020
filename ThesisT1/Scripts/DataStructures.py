@@ -3,9 +3,10 @@ import os
 import numpy as np
 from skimage import transform
 import torch.utils.data as data
-import cv2
 
-import nibabel as nib
+from memory_profiler import profile
+import sys
+import gc
 
 from Utils import NiiProcessor
 from Utils import ImageProcessor
@@ -14,13 +15,14 @@ from Utils import CommonUtil
 #MACRO
 DEBUG=False
 
+
 # Use index-last ndarray for storing data
 # Use Grey1 img
 class ImgDataSet(data.Dataset):
-    # Accept array of niis
-    def __init__(self, niisData, niisMask, slices=1, classes=2, resize=None, aug=None, preproc=None):
+    @profile
+    def InitFromNiis(self, niisData, niisMask, slices=1, classes=2, resize=None, aug=None, preproc=None):
         # TODO: Maybe check data-mask match
-        self.imgDataWrappers = np.empty(0)  # [ImgDataWrapper, ...]
+        self.imgDataWrappers = np.empty(0,dtype=ImgDataWrapper)
 
         print("Constructing Data and Masks...")
 
@@ -28,11 +30,10 @@ class ImgDataSet(data.Dataset):
             niiImg = niisData[i]
             niiMask = niisMask[i]
 
-            atlasImg = NiiProcessor.ReadGrey1ImgsFromNii(niiImg)
-            atlasMask = NiiProcessor.ReadGreyStepImgsFromNii(niiMask)
+            atlasesImg = np.asarray([NiiProcessor.ReadGrey1ImgsFromNii(niiImg)])
+            atlasesMask = np.asarray([NiiProcessor.ReadGreyStepImgsFromNii(niiMask)])
 
-            atlasesImg = None
-            atlasesMask = None
+            gc.collect()
 
             if aug is not None:
                 '''
@@ -42,22 +43,76 @@ class ImgDataSet(data.Dataset):
                 Out: ndarray[CountAug,H,W,Slice] fmt=Grey1
                      ndarray[CountAug,H,W,Slice] fmt=GreyStep
                 '''
-                atlasesImg, atlasesMask = aug(atlasImg, atlasMask)
-            else:
-                atlasesImg = np.array([atlasImg])
-                atlasesMask = np.array([atlasMask])
+                atlasesImg, atlasesMask = aug(atlasesImg[0], atlasesMask[0])
+
+            gc.collect()
 
             for j in range(atlasesImg.shape[0]):
-                imgs = atlasesImg[j]
-                masks = atlasesMask[j]
-                self.imgDataWrappers = np.append(self.imgDataWrappers, \
-                                                 np.array([ImgDataWrapper(imgs, masks, classes, resize=resize, preproc=preproc)]), \
+                self.imgDataWrappers = np.insert(self.imgDataWrappers, len(self.imgDataWrappers), \
+                                                 ImgDataWrapper(atlasesImg[j], atlasesMask[j], classes, resize=resize, preproc=preproc), \
                                                  axis=0)
+            del(atlasesImg)
+            del (atlasesMask)
+            gc.collect()
             print("  Done...")
+
+        print("="*100)
+        for wrapper in self.imgDataWrappers:
+            print("wrapper:",sys.getsizeof(wrapper.imgs)+sys.getsizeof(wrapper.masks))
 
         self.slices = 0  # int
         self.len = 0  # int
         self.SetSlices(slices)
+
+    @profile
+    def InitFromNpys(self, dir, slices=1, classes=2):
+
+        self.LoadFromNpys(dir, classes)
+
+        self.slices = 0  # int
+        self.len = 0  # int
+        self.SetSlices(slices)
+
+    def SaveToNpys(self, dir):
+        countWrappers = len(self.imgDataWrappers)
+        digitWrapperCount = len(str(countWrappers - 1))
+        dirImg = os.path.join(dir, "imgs")
+        dirMask = os.path.join(dir, "masks")
+        CommonUtil.Mkdir(dirImg)
+        CommonUtil.Mkdir(dirMask)
+        for i in range(countWrappers):
+            wrapper = self.imgDataWrappers[i]
+            imgs = wrapper.imgs
+            masks = wrapper.masks
+            fn = str(i).zfill(digitWrapperCount) + ".npy"
+            pathImg = os.path.join(dirImg, fn)
+            pathMask = os.path.join(dirMask, fn)
+            np.save(pathImg, imgs)
+            np.save(pathMask, masks)
+
+    def LoadFromNpys(self, dir, classes):
+
+        self.imgDataWrappers = np.empty(0)
+
+        npysImgs = CommonUtil.GetFileFromThisRootDir(os.path.join(dir, "imgs"), ".npy")
+        npysMasks = CommonUtil.GetFileFromThisRootDir(os.path.join(dir, "masks"), ".npy")
+        if len(npysImgs) != len(npysMasks):
+            print("WARNING: Count of img inputs is different from count of mask inputs.")
+        for i in range(len(npysImgs)):
+            print("Loading:")
+            print("  " + npysImgs[i])
+            print("  " + npysMasks[i])
+            imgs = np.load(npysImgs[i])
+            masks = np.load(npysMasks[i])
+            print(imgs.shape)
+            print(masks.shape)
+            if imgs is None:
+                raise Exception("Imgs is none. No img has been read.")
+            if masks is None:
+                raise Exception("Masks is none. No mask has been read.")
+            self.imgDataWrappers = np.append(self.imgDataWrappers, \
+                                             np.asarray([ImgDataWrapper(imgs, masks, classes, imgDataFmt=imgs.dtype, maskDataFmt=masks.dtype, isMaskOneHot=True)]), \
+                                             axis=0)
 
     def SetSlices(self, slices):
         self.slices = slices
@@ -82,7 +137,7 @@ class ImgDataSet(data.Dataset):
     # Out: ndarray[Slices,(Channels),H,W] dtype=int
     def __getitem__(self, index):  # 返回的是ndarray
         idxWrapper, idxImg = self.__DecodeIndex(index)
-        #print("idxWrapper, idxImg: ", idxWrapper, idxImg)
+        # print("idxWrapper, idxImg: ", idxWrapper, idxImg)
         img0, target0 = self.imgDataWrappers[idxWrapper].Get(idxImg,
                                                              self.slices)  # ndarray[H,W,Slice]  ndarray[H,W,Channel]
 
@@ -127,7 +182,9 @@ class ImgDataSet(data.Dataset):
 # Preproc deal with Grey1 img and GreyStep mask (return the same format)
 # TODO: Maybe wrap image into a class
 class ImgDataWrapper():
-    def __init__(self, imgs, masks, classes, resize=None, preproc=None, imgDataFmt=float, maskDataFmt=int):
+    @profile
+    def __init__(self, imgs, masks, classes, resize=None, preproc=None, imgDataFmt=float, maskDataFmt=int,
+                 isMaskOneHot=False):
 
         self.imgs = imgs
         self.masks = masks
@@ -138,6 +195,8 @@ class ImgDataWrapper():
                                          preserve_range=True, anti_aliasing=False)
             self.masks = transform.resize(self.masks, resize + (self.masks.shape[2],), order=0, clip=True,
                                           preserve_range=True, anti_aliasing=False)
+            gc.collect()
+
 
         if DEBUG:
             testNum = 20
@@ -147,6 +206,8 @@ class ImgDataWrapper():
         if preproc is not None:
             self.imgs, self.masks = preproc(self.imgs, self.masks, classes)
 
+        gc.collect()
+
         self.imgs = self.imgs.astype(dtype=imgDataFmt)
         self.masks = self.masks.astype(dtype=maskDataFmt)
 
@@ -154,22 +215,13 @@ class ImgDataWrapper():
         if classes <= 1:
             raise Exception("Class count = 1. Unable to run! ")
 
-        maxClass = np.max(np.unique(self.imgs))
-        if maxClass > classes:
-            raise Exception("Not enough classes! MaxClassValue: " + str(maxClass))
+        if not isMaskOneHot:
+            maxClass = np.max(np.unique(self.masks))
+            if maxClass > classes:
+                raise Exception("Not enough classes! MaxClassValue: " + str(maxClass))
 
-        self.masks = CommonUtil.PackIntoOneHot(self.masks, classes)
-
-        # TEST
-        channel1 = self.masks[..., 1, :]
-        # print("channel1",channel1.shape)
-        # print("channel1", np.unique(channel1))
-        if np.all(channel1 == 0):
-            raise Exception("Onehot encoding error! Channel 1 all 0!")
-        # ENDTEST
-
-        # print("self.imgs.shape",self.imgs.shape)
-        # print("self.masks.shape",self.masks.shape)
+            self.masks = CommonUtil.PackIntoOneHot(self.masks, classes)
+            gc.collect()
 
         if np.any(np.isnan(self.imgs)):
             raise Exception("NAN Warning!")
