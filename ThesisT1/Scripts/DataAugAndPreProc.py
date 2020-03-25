@@ -16,8 +16,8 @@ import gc
   Preproc deal with Grey1 img and GreyStep mask (return the same format)
 '''
 # PreprocDistBG: Distinguish BG from unmarked muscle
-@profile
-def PreprocDistBG(imgs, masks, classes):
+# @profile
+def PreprocDistBG_TRIAL(imgs, masks, classes):
     thres = 8
 
     imgsU8 = np.asarray(ImageProcessor.MapTo255(imgs), np.uint8)
@@ -63,8 +63,8 @@ def PreprocDistBG(imgs, masks, classes):
     return imgs1, masks1
 
 # Preproc0: Not distinguish BG from unmarked muscle
-@profile
-def Preproc0(imgs, masks, classes):
+# @profile
+def Preproc0_TRIAL(imgs, masks, classes):
 
     imgsU8 = np.asarray(ImageProcessor.MapTo255(imgs), np.uint8)
     del(imgs)
@@ -96,6 +96,25 @@ def Preproc0(imgs, masks, classes):
 
     return imgs1, masks1
 
+def PreprocT4(imgs, masks, classes):
+    imgsU8 = np.asarray(ImageProcessor.MapTo255(imgs), np.uint8)
+    del imgs
+    gc.collect()
+
+    if classes < 2:
+        raise Exception("Class count not enough!")
+
+    masks1 = masks
+
+    # Map all ignored classes to class 1 (unmarked muscle)
+    masks1[masks1 == 2] = 0
+
+    imgs1 = ImageProcessor.MapTo1(np.asarray(imgsU8, int))
+    del imgsU8
+    gc.collect()
+
+    return imgs1, masks1
+
 '''
 Aug:
     Org:
@@ -106,10 +125,9 @@ Aug:
         Rand x4 : Sheer(-0.1:0.1,-0.1:0.1),Scale(0.95,1.05),Rot(-20,20)
 '''
 
-
 # In: ndarray[H,W,Slice] dtype=uint8
 # Out: ndarray[CountAug,H,W,Slice] dtype=uint8
-@profile
+# @profile
 def AugCV2(imgsCV2, sheer, scale, rot, isImg):
     interpolation = None
     if isImg:
@@ -131,8 +149,8 @@ def AugCV2(imgsCV2, sheer, scale, rot, isImg):
 # Out: ndarray[CountAug,H,W,Slice] fmt=Grey1
 #      ndarray[CountAug,H,W,Slice] fmt=GreyStep
 # DataAug: function for data augmentation
-@profile
-def DataAug(atlasImg, atlasMask, countAug=1):
+# @profile
+def DataAug_TRIAL(atlasImg, atlasMask, countAug=1):
 
     #     atlasesImgU8 = AugCV2(imgsU8)
     #     atlasesMaskU8 = AugCV2(masksU8)
@@ -176,6 +194,62 @@ def DataAug(atlasImg, atlasMask, countAug=1):
         scale = np.random.uniform(0.95, 1.05)
         scale = (scale, scale)
         rot = np.random.uniform(-20.0, 20.0)
+        atlasesImgU8 = np.concatenate((atlasesImgU8, AugCV2(imgsU8Flip, sheer, scale, rot, True)), axis=0)
+        atlasesMaskU8 = np.concatenate((atlasesMaskU8, AugCV2(masksU8Flip, sheer, scale, rot, False)), axis=0)
+
+    atlasesImg = ImageProcessor.MapTo1(np.asarray(atlasesImgU8, np.int16))
+    del(atlasesImgU8)
+    gc.collect()
+    atlasesMask = ImageProcessor.MapToGreyStep(np.asarray(atlasesMaskU8, np.int16))
+    del (atlasesMaskU8)
+    gc.collect()
+
+    return atlasesImg, atlasesMask
+
+def DataAug(atlasImg, atlasMask, countAug=1):
+
+    #     atlasesImgU8 = AugCV2(imgsU8)
+    #     atlasesMaskU8 = AugCV2(masksU8)
+
+    '''
+    Aug:
+        Org:
+        dataOrg
+        Flip
+        dataFlip
+        for dataOrg and data Flip:
+            Rand x4 : Sheer(-0.1:0.1,-0.1:0.1),Scale(0.95,1.05),Rot(-10,10)
+    '''
+
+    atlasesImgU8 = np.asarray([np.asarray(ImageProcessor.MapTo255(atlasImg), np.uint8)], dtype=np.uint8)
+    del (atlasImg)
+    gc.collect()
+    atlasesMaskU8 = np.asarray([np.asarray(ImageProcessor.MapTo255(atlasMask), np.uint8)], dtype=np.uint8)
+    del (atlasMask)
+    gc.collect()
+
+    imgsU8Flip = np.empty(atlasesImgU8[0].shape)
+    for i in range(atlasesImgU8[0].shape[2]):
+        imgsU8Flip[..., i] = CV2ImageProcessor.Flip(atlasesImgU8[0][..., i], 0)
+    atlasesImgU8 = np.insert(atlasesImgU8, len(atlasesImgU8), imgsU8Flip, axis=0)
+
+    masksU8Flip = np.empty(atlasesMaskU8[0].shape)
+    for i in range(atlasesMaskU8[0].shape[2]):
+        masksU8Flip[..., i] = CV2ImageProcessor.Flip(atlasesMaskU8[0][..., i], 0)
+    atlasesMaskU8 = np.insert(atlasesMaskU8, len(atlasesMaskU8), masksU8Flip, axis=0)
+
+    for i in range(countAug):
+        sheer = (np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1))
+        scale = np.random.uniform(0.95, 1.05)
+        scale = (scale, scale)
+        rot = np.random.uniform(-10.0, 10.0)
+        atlasesImgU8 = np.concatenate((atlasesImgU8, AugCV2(atlasesImgU8[0], sheer, scale, rot, True)), axis=0)
+        atlasesMaskU8 = np.concatenate((atlasesMaskU8, AugCV2(atlasesMaskU8[0], sheer, scale, rot, False)), axis=0)
+
+        sheer = (np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1))
+        scale = np.random.uniform(0.95, 1.05)
+        scale = (scale, scale)
+        rot = np.random.uniform(-10.0, 10.0)
         atlasesImgU8 = np.concatenate((atlasesImgU8, AugCV2(imgsU8Flip, sheer, scale, rot, True)), axis=0)
         atlasesMaskU8 = np.concatenate((atlasesMaskU8, AugCV2(masksU8Flip, sheer, scale, rot, False)), axis=0)
 

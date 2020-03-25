@@ -24,8 +24,9 @@ from Utils import CV2ImageProcessor
 from DataStructures import ImgDataSet
 from DataStructures import ImgDataWrapper
 
-from DataAugAndPreProc import PreprocDistBG
-from DataAugAndPreProc import Preproc0
+from DataAugAndPreProc import PreprocDistBG_TRIAL
+from DataAugAndPreProc import Preproc0_TRIAL
+from DataAugAndPreProc import PreprocT4
 from DataAugAndPreProc import DataAug
 
 from LossFunc import MulticlassDiceLoss
@@ -186,10 +187,10 @@ def diceCoef(input, target):
 
 
 def RunNN(classes, slices, resize, \
-         aug, preproc,
-         trainTestSplit, batchSizeTrain, epochs, learningRate, \
-         toSaveData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
-         pathModel, pathSrc, pathTarg, pathRunningLossPlot, \
+          aug, preproc,
+          trainTestSplit, batchSizeTrain, epochs, learningRate, \
+          toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
+          dirSaveData, pathModel, dirSrc, dirTarg, pathRunningLossPlot, \
          dataFmt="float32", randSeed=0):
     #
     # Main
@@ -198,18 +199,23 @@ def RunNN(classes, slices, resize, \
     np.random.seed(randSeed)
 
     SAVE_DATA = toSaveData
+    LOAD_DATA = toLoadData
     TRAIN = toTrain
     TEST = toTest
     SAVE_OUTPUT = toSaveOutput
     SAVE_LOSS = toSaveRunnningLoss
 
-    pathSrcData = os.path.join(pathSrc, "data")
-    pathSrcMask = os.path.join(pathSrc, "masks")
+    dirSrcData = os.path.join(dirSrc, "data")
+    dirSrcMask = os.path.join(dirSrc, "masks")
+    dirTrain = "train"
+    dirTest = "test"
+    dirSaveDataTrain = os.path.join(dirSaveData, dirTrain)
+    dirSaveDataTest = os.path.join(dirSaveData, dirTest)
 
-    print(pathSrcData)
-    print(pathSrcMask)
+    print(dirSrcData)
+    print(dirSrcMask)
     print(os.listdir("../../../Sources/Data"))
-    print(os.listdir(pathSrcData))
+    print(os.listdir(dirSrcData))
 
     #   Printing Param
     printLossPerBatch = False
@@ -217,20 +223,54 @@ def RunNN(classes, slices, resize, \
     accuracy = None
     dice = None
 
-    if TRAIN or TEST or SAVE_DATA:
+    if (TRAIN or TEST and not LOAD_DATA) or SAVE_DATA:
         #
         # Prepare Dataset
         #
         # Load nii
 
-        niisData = NiiProcessor.ReadAllNiiInDir(pathSrcData)
-        niisMask = NiiProcessor.ReadAllNiiInDir(pathSrcMask)
+        niisData = NiiProcessor.ReadAllNiiInDir(dirSrcData)
+        niisMask = NiiProcessor.ReadAllNiiInDir(dirSrcMask)
 
-        print("Data to read: ")
+        print("Niis to read: ")
         print(niisData)
         print(niisMask)
         # Split train set and test set
         niisAll = ImgDataSet.Split(niisData, niisMask, trainTestSplit)
+
+        if TRAIN or SAVE_DATA:
+            print("Making train set...")
+            datasetTrain = ImgDataSet()
+            datasetTrain.InitFromNiis(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], slices=slices,
+                                      classes=classes, resize=resize, aug=aug, preproc=preproc)
+            print("Done")
+
+        if TEST or SAVE_DATA:
+            print("Making test set...")
+            datasetTest = ImgDataSet()
+            datasetTest.InitFromNiis(niisAll["niisDataTest"], niisAll["niisMaskTest"], slices=slices, classes=classes,
+                                     resize=resize, aug=aug, preproc=preproc)
+            print("Done")
+
+        if SAVE_DATA:
+            CommonUtil.Mkdir(dirSaveDataTrain)
+            datasetTrain.SaveToNpys(dirSaveDataTrain)
+            CommonUtil.Mkdir(dirSaveDataTest)
+            datasetTest.SaveToNpys(dirSaveDataTest)
+
+    if LOAD_DATA:
+        if TRAIN:
+            print("Loading train set...")
+            datasetTrain = ImgDataSet()
+            datasetTrain.InitFromNpys(dirSaveDataTrain, slices=slices, classes=classes)
+            print("Done")
+
+        if TEST:
+            print("Loading test set...")
+            datasetTest = ImgDataSet()
+            datasetTest.InitFromNpys(dirSaveDataTest, slices=slices, classes=classes)
+            print("Done")
+
 
     if TRAIN or TEST:
 
@@ -240,21 +280,15 @@ def RunNN(classes, slices, resize, \
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")#torch.device("cpu")
         print("Device: ", str(device))
 
-
-
         # Create DataLoaders
         # TODO: 使用torchvision?
         # DataLoader return tensor [batch,h,w,c]
 
         if TRAIN:
-            print("Making train set...")
-            datasetTrain = ImgDataSet(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], slices=slices, classes=classes, resize=resize, aug=aug, preproc=preproc)
             print("Making train loader...")
             loaderTrain = data.DataLoader(dataset=datasetTrain, batch_size=batchSizeTrain, shuffle=True)
             print("Done")
         if TEST:
-            print("Making test set...")
-            datasetTest = ImgDataSet(niisAll["niisDataTest"], niisAll["niisMaskTest"], slices=slices, classes=classes, resize=resize, aug=aug, preproc=preproc)
             print("Making test loader...")
             loaderTest = data.DataLoader(dataset=datasetTest, batch_size=1, shuffle=False)
             print("Done")
@@ -325,7 +359,7 @@ def RunNN(classes, slices, resize, \
                 if SAVE_LOSS:
                     runningLoss[epoch] = epoLoss
 
-            # Save mode
+            # Save model
             dirMdl, filenameMdl = os.path.split(pathModel)
             CommonUtil.Mkdir(dirMdl)
             torch.save(net.state_dict(), pathModel)
@@ -393,7 +427,9 @@ def RunNN(classes, slices, resize, \
                     rateCorrect += np.sum(masksNP1 == predictsNP1).item()/len(masksNP1.flatten())
 
                     if SAVE_OUTPUT:
-                        #Output
+                        CommonUtil.Mkdir(dirTarg)
+
+                        # Output
                         masksNP2 = CommonUtil.UnpackFromOneHot(masksNP1)
                         predictsNP2 = CommonUtil.UnpackFromOneHot(predictsNP1)
 
@@ -403,17 +439,17 @@ def RunNN(classes, slices, resize, \
                             img = inputsNP1[:,:,int(inputsNP1.shape[2]/2),iImg]
                             img255=ImageProcessor.MapTo255(img)
                             # ImageProcessor.ShowGrayImgHere(img255, "P"+str(iImg),(10,10))
-                            ImageProcessor.SaveGrayImg(pathTarg,str(countImg)+"_ORG.jpg",img255)
+                            ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_ORG.jpg", img255)
 
                             mask = masksNP2[:,:, iImg]
                             mask255 = ImageProcessor.MapTo255(mask, max=classes-1)
                             # ImageProcessor.ShowGrayImgHere(mask255, "P" + str(iImg)+"_TARG", (10, 10))
-                            ImageProcessor.SaveGrayImg(pathTarg, str(countImg) + "_TARG.jpg", mask255)
+                            ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_TARG.jpg", mask255)
 
                             predict = predictsNP2[:,:, iImg]
                             predict255 = ImageProcessor.MapTo255(predict, max=classes-1)
                             # ImageProcessor.ShowGrayImgHere(predict255, "P" + str(iImg)+"_PRED", (10, 10))
-                            ImageProcessor.SaveGrayImg(pathTarg, str(countImg) + "_PRED.jpg", predict255)
+                            ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_PRED.jpg", predict255)
 
             print("Done")
 
@@ -421,9 +457,6 @@ def RunNN(classes, slices, resize, \
             dice = dice / countBatch
 
     return accuracy, dice
-
-
-
 
 
 def TestNiiWrapper():
@@ -526,16 +559,18 @@ def TestNetwork():
     # Used(MB): 667.7109375
     # Free(MB): 1380.2890625
 
-# Run net
-def Main():
+# Run net for trial data
+def Main_TRIAL():
     # Rand Seed
     randSeed = 0
 
     # Train or Test
-    toTrain = True
+    toSaveData = False
+    toLoadData = True
+    toTrain = False
     toTest = True
-    toSaveRunnningLoss = True
-    toSaveOutput = True  # True
+    toSaveRunnningLoss = False
+    toSaveOutput = False
 
     #
     # Param Setting
@@ -550,17 +585,69 @@ def Main():
     learningRate = 0.001
     dataFmt = "float32"
 
-    pathModel = "./model.pth"  # "./model_D2.pth"#"./model.pth"#"./model_6.pth"
-    pathSrc = "../../../Sources/Data/data_nii"
-    pathTarg = "../../../Sources/Data/output"  # "../../../Sources/Data/output_D2"#"../../../Sources/Data/output"#"../../../Sources/Data/output_6"
-    pathRunningLossPlot = "../../../Sources/Data/loss/loss.jpg"
+    dirSrc = "../../../Sources/Data/data_nii_TRIAL"
+
+    dirRoot = "../../../Sources/C7"
+    dirSaveData = os.path.join(dirRoot,"SavedData")
+    pathModel = os.path.join(dirRoot,"model.pth")
+    dirTarg = os.path.join(dirRoot,"Output")
+    pathRunningLossPlot = os.path.join(dirRoot,"loss.jpg")
 
     accuracy, dice = RunNN(classes, slices, resize, \
-                           DataAug, PreprocDistBG,
+                           DataAug, PreprocDistBG_TRIAL,
                            trainTestSplit, batchSizeTrain, epochs, learningRate, \
-                           toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
-                           pathModel, pathSrc, pathTarg, pathRunningLossPlot, \
+                           toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
+                           dirSaveData, pathModel, dirSrc, dirTarg, pathRunningLossPlot, \
                            dataFmt, randSeed)
+
+    print("Classification accuracy: ", accuracy)
+
+    print("Dice Coef:")
+
+    for j in range(classes):
+        print("Class ", j, ": ", dice[j])
+
+# Run net for real data
+def Main():
+    # Rand Seed
+    randSeed = 0
+
+    # Train or Test
+    toSaveData = True
+    toLoadData = False
+    toTrain = True
+    toTest = True
+    toSaveRunnningLoss = True
+    toSaveOutput = True
+
+    #
+    # Param Setting
+    #
+    #   Running Params
+    classes = 2
+    trainTestSplit = 0.8
+    batchSizeTrain = 8
+    slices = 3
+    resize = None #(256, 256)
+    epochs = 50
+    learningRate = 0.001
+    dataFmt = "float32"
+
+    dirSrc = "../../../Sources/Data/data_nii"
+
+    dirRoot = "../../../Sources/T4C2"
+    dirSaveData = os.path.join(dirRoot,"SavedData")
+    pathModel = os.path.join(dirRoot,"model.pth")
+    dirTarg = os.path.join(dirRoot,"Output")
+    pathRunningLossPlot = os.path.join(dirRoot,"loss.jpg")
+
+    accuracy, dice = RunNN(classes, slices, resize, \
+                           DataAug, PreprocT4,
+                           trainTestSplit, batchSizeTrain, epochs, learningRate, \
+                           toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
+                           dirSaveData, pathModel, dirSrc, dirTarg, pathRunningLossPlot, \
+                           dataFmt, randSeed)
+
     print("Classification accuracy: ", accuracy)
 
     print("Dice Coef:")

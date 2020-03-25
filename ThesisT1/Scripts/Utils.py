@@ -299,8 +299,9 @@ class CV2ImageProcessor():
     # Out: ndarray[] dtype = uint8
     @staticmethod
     def Translate(imgCV2, translation, interpolation=cv2.INTER_LINEAR):
+        (h, w) = imgCV2.shape[:2]
         mTranslate = np.array([[1, 0, translation[0]], [0, 1, translation[1]]], dtype="float32")
-        imgCV2Translate = cv2.warpAffine(imgCV2, mTranslate, imgCV2.shape, flags=interpolation)
+        imgCV2Translate = cv2.warpAffine(imgCV2, mTranslate, (w, h), flags=interpolation)
         del(imgCV2)
         gc.collect()
         return imgCV2Translate
@@ -348,7 +349,7 @@ class CV2ImageProcessor():
     @staticmethod
     def ScaleAtCenter(imgCV2, scale2D, interpolation=cv2.INTER_LINEAR):
         imgCV2Scale = np.zeros(imgCV2.shape, dtype=np.uint8)
-        scaledSize = (int(imgCV2.shape[0] * scale2D[1]), int(imgCV2.shape[1] * scale2D[0]))  # (h,w)
+        scaledSize = (int(imgCV2.shape[1] * scale2D[0]),int(imgCV2.shape[0] * scale2D[1]))  # (w,h)
         imgCV2Scale0 = cv2.resize(imgCV2, scaledSize, interpolation=interpolation)
         del (imgCV2)
         gc.collect()
@@ -363,6 +364,7 @@ class CV2ImageProcessor():
         imgCV2Scale[t:b, l:r, ...] = imgCV2Scale0[t0:b0, l0:r0, ...]
         del(imgCV2Scale0)
         gc.collect()
+
         return imgCV2Scale
 
     # In: imgCV2: ndarray[] dtype = uint8
@@ -370,12 +372,14 @@ class CV2ImageProcessor():
     # Out: ndarray[] dtype = uint8
     @staticmethod
     def Sheer(imgCV2, sheer2D, interpolation=cv2.INTER_LINEAR):
+        (h, w) = imgCV2.shape[:2]
         src = np.array([(0, 0), (0, 1), (1, 0)], dtype="float32")
         targ = np.array([(-sheer2D[1], sheer2D[0]), (0, 1 + sheer2D[0]), (1 - sheer2D[1], 0)], dtype="float32")
         mSheer = cv2.getAffineTransform(src, targ)
-        imgCV2Sheer = cv2.warpAffine(imgCV2, mSheer, imgCV2.shape, flags=interpolation)
+        imgCV2Sheer = cv2.warpAffine(imgCV2, mSheer, (w, h), flags=interpolation)
         del (imgCV2)
         gc.collect()
+
         return imgCV2Sheer
 
     # In: imgCV2: ndarray[] dtype = uint8

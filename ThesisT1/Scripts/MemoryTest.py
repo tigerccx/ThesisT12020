@@ -28,7 +28,7 @@ def MemoryTester():
     #
     #   Running Params
     classes = 7
-    trainTestSplit = 0.93
+    trainTestSplit = 0.8
     batchSizeTrain = 8
     slices = 3
     resize = (256, 256)  # None
@@ -51,6 +51,14 @@ def MemoryTester():
 
     # Split train set and test set
     niisAll = ImgDataSet.Split(niisData, niisMask, trainTestSplit)
+
+    print("Making train set...")
+    datasetTrain = ImgDataSet()
+    datasetTrain.InitFromNiis(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], slices=slices, classes=classes,
+                              resize=resize, aug=aug, preproc=preproc)
+    print("Making train loader...")
+    loaderTrain = data.DataLoader(dataset=datasetTrain, batch_size=batchSizeTrain, shuffle=True)
+    print("Done")
 
     print("Making test set...")
     datasetTest = ImgDataSet()

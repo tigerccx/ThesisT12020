@@ -19,14 +19,16 @@ DEBUG=False
 # Use index-last ndarray for storing data
 # Use Grey1 img
 class ImgDataSet(data.Dataset):
-    @profile
+    # @profile
     def InitFromNiis(self, niisData, niisMask, slices=1, classes=2, resize=None, aug=None, preproc=None):
         # TODO: Maybe check data-mask match
         self.imgDataWrappers = np.empty(0,dtype=ImgDataWrapper)
 
         print("Constructing Data and Masks...")
-
+        print("-" * 32)
         for i in range(len(niisData)):
+            print("  Loading...")
+
             niiImg = niisData[i]
             niiMask = niisMask[i]
 
@@ -43,9 +45,12 @@ class ImgDataSet(data.Dataset):
                 Out: ndarray[CountAug,H,W,Slice] fmt=Grey1
                      ndarray[CountAug,H,W,Slice] fmt=GreyStep
                 '''
+                print("  Augmenting...")
                 atlasesImg, atlasesMask = aug(atlasesImg[0], atlasesMask[0])
 
             gc.collect()
+
+            print("  Creating DataWappers...")
 
             for j in range(atlasesImg.shape[0]):
                 self.imgDataWrappers = np.insert(self.imgDataWrappers, len(self.imgDataWrappers), \
@@ -55,6 +60,7 @@ class ImgDataSet(data.Dataset):
             del (atlasesMask)
             gc.collect()
             print("  Done...")
+            print("  ","-"*30)
 
         print("="*100)
         for wrapper in self.imgDataWrappers:
@@ -64,7 +70,7 @@ class ImgDataSet(data.Dataset):
         self.len = 0  # int
         self.SetSlices(slices)
 
-    @profile
+    # @profile
     def InitFromNpys(self, dir, slices=1, classes=2):
 
         self.LoadFromNpys(dir, classes)
@@ -159,13 +165,16 @@ class ImgDataSet(data.Dataset):
         idx = np.random.permutation(niisData.shape[0])
         idxSplit = int(len(idx) * trainSize)
         idxLen = len(idx)
-        print("Splitting into:")
-        print("   Train: ", idx[0:idxSplit])
-        print("   Test: ", idx[idxSplit:idxLen])
         niisDataTrain = np.asarray(niisData[idx[0:idxSplit]])
         niisMaskTrain = np.asarray(niisMask[idx[0:idxSplit]])
         niisDataTest = np.asarray(niisData[idx[idxSplit:idxLen]])
         niisMaskTest = np.asarray(niisMask[idx[idxSplit:idxLen]])
+
+        print("Splitting into:")
+        print("-->Train: ", idx[0:idxSplit])
+        # print(niisDataTrain)
+        print("-->Test: ", idx[idxSplit:idxLen])
+        # print(niisDataTest)
         # print("niisDataTrain\n", niisDataTrain)
         # print("niisMaskTrain\n", niisMaskTrain)
         # print("niisDataTest\n", niisDataTest)
@@ -182,7 +191,7 @@ class ImgDataSet(data.Dataset):
 # Preproc deal with Grey1 img and GreyStep mask (return the same format)
 # TODO: Maybe wrap image into a class
 class ImgDataWrapper():
-    @profile
+    # @profile
     def __init__(self, imgs, masks, classes, resize=None, preproc=None, imgDataFmt=float, maskDataFmt=int,
                  isMaskOneHot=False):
 
