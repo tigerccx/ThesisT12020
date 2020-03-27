@@ -43,12 +43,14 @@ class ImgDataSet(data.Dataset):
     # Out: ndarray[Slices,(Channels),H,W] dtype=int
     def __getitem__(self, index):  # 返回的是ndarray
         idxWrapper, idxImg = self.__DecodeIndex(index)
+        # print(idxWrapper, ",", idxImg)
         img0, target0 = self.imgDataWrappers[idxWrapper].Get(idxImg,
                                                              self.slices)  # ndarray[H,W,Slice]  ndarray[H,W,Channel]
 
         img = np.transpose(img0, (2, 0, 1))  # ndarray[Slice,H,W]
         target = np.transpose(target0, (2, 0, 1))  # ndarray[Channel,H,W] dtype=int
-
+        # print("img",img.shape)
+        # print("target",target.shape)
         return img, target
 
     def __len__(self):
@@ -89,6 +91,7 @@ class ImgDataSetMemory(ImgDataSet):
         print("Constructing Data and Masks...")
         print("-" * 32)
         for i in range(len(niisData)):
+            print("  File",i+1,":")
             print("  Loading...")
 
             niiImg = niisData[i]
@@ -125,9 +128,9 @@ class ImgDataSetMemory(ImgDataSet):
             print("  Done...")
             print("  ", "-" * 30)
 
-        print("=" * 100)
-        for wrapper in self.imgDataWrappers:
-            print("wrapper:", sys.getsizeof(wrapper.imgs) + sys.getsizeof(wrapper.masks))
+        # print("=" * 100)
+        # for wrapper in self.imgDataWrappers:
+        #     print("wrapper:", sys.getsizeof(wrapper.imgs) + sys.getsizeof(wrapper.masks))
 
         self.slices = 0  # int
         self.len = 0  # int
@@ -161,20 +164,20 @@ class ImgDataSetMemory(ImgDataSet):
 
     def LoadFromNpys(self, dir, classes):
 
-        self.imgDataWrappers = np.empty(0)
+        self.imgDataWrappers = np.empty(0, dtype=ImgDataWrapperMemory)
 
         npysImgs = CommonUtil.GetFileFromThisRootDir(os.path.join(dir, "imgs"), ".npy")
         npysMasks = CommonUtil.GetFileFromThisRootDir(os.path.join(dir, "masks"), ".npy")
         if len(npysImgs) != len(npysMasks):
             print("WARNING: Count of img inputs is different from count of mask inputs.")
         for i in range(len(npysImgs)):
-            print("Loading:")
-            print("  " + npysImgs[i])
-            print("  " + npysMasks[i])
+            # print("Loading",i,":")
+            # print("  " + npysImgs[i])
+            # print("  " + npysMasks[i])
             imgs = np.load(npysImgs[i])
             masks = np.load(npysMasks[i])
-            print(imgs.shape)
-            print(masks.shape)
+            # print(imgs.shape)
+            # print(masks.shape)
             if imgs is None:
                 raise Exception("Imgs is none. No img has been read.")
             if masks is None:
@@ -249,8 +252,9 @@ class ImgDataSetDisk(ImgDataSet):
 
         dirsWrapper = os.listdir(dirImgDataSet)
         for dirWrapper in dirsWrapper:
+            dirWrapper1 = os.path.join(dirImgDataSet,dirWrapper)
             imgDataWrapper = ImgDataWrapperDisk()
-            imgDataWrapper.InitFromDir(dirWrapper)
+            imgDataWrapper.InitFromDir(dirWrapper1)
             self.imgDataWrappers = np.insert(self.imgDataWrappers, len(self.imgDataWrappers), imgDataWrapper, axis=0)
 
         self.slices = 0  # int

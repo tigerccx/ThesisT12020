@@ -107,7 +107,7 @@ def PreprocT4(imgs, masks, classes):
     masks1 = masks
 
     # Map all ignored classes to class 1 (unmarked muscle)
-    masks1[masks1 == 2] = 0
+    masks1[masks1 >= 2] = 0
 
     imgs1 = ImageProcessor.MapTo1(np.asarray(imgsU8, int))
     del imgsU8

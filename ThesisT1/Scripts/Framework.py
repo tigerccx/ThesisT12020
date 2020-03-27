@@ -1,4 +1,6 @@
 import os
+import time
+from threading import Thread
 
 import numpy as np
 
@@ -37,6 +39,12 @@ from LossFunc import MulticlassDiceLoss
 #MACRO
 DEBUG = False
 DEBUG_TEST = False
+
+# Abort
+_abort = None
+def anyKeyToAbort():
+    global _abort
+    _abort = input()
 
 
 # Original Network
@@ -188,13 +196,12 @@ def diceCoef(input, target):
 #TODO: Try transfer learning
 #TODO: Use multi-thread for reading annd saving
 
-
 def RunNN(classes, slices, resize, \
           aug, preproc,
           trainTestSplit, batchSizeTrain, epochs, learningRate, \
           toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
           dirSaveData, pathModel, dirSrc, dirTarg, pathRunningLossPlot, \
-          ,toUseDisk=False, dataFmt="float32", randSeed=0):
+          toUseDisk=False, dataFmt="float32", randSeed=0, toPrintTime=True):
     #
     # Main
     #
@@ -208,6 +215,7 @@ def RunNN(classes, slices, resize, \
     SAVE_OUTPUT = toSaveOutput
     SAVE_LOSS = toSaveRunnningLoss
     USE_DISK = toUseDisk
+    PRINT_TIME = toPrintTime
 
     dirSrcData = os.path.join(dirSrc, "data")
     dirSrcMask = os.path.join(dirSrc, "masks")
@@ -216,18 +224,16 @@ def RunNN(classes, slices, resize, \
     dirSaveDataTrain = os.path.join(dirSaveData, dirTrain)
     dirSaveDataTest = os.path.join(dirSaveData, dirTest)
 
-    print(dirSrcData)
-    print(dirSrcMask)
-    print(os.listdir("../../../Sources/Data"))
-    print(os.listdir(dirSrcData))
-
     #   Printing Param
     printLossPerBatch = False
 
     accuracy = None
     dice = None
 
-    if (TRAIN or TEST and not LOAD_DATA) or SAVE_DATA or USE_DISK:
+    if PRINT_TIME:
+        startProc = time.time()
+
+    if ((TRAIN or TEST) and not LOAD_DATA) or SAVE_DATA:
         #
         # Prepare Dataset
         #
@@ -236,63 +242,85 @@ def RunNN(classes, slices, resize, \
         niisData = NiiProcessor.ReadAllNiiInDir(dirSrcData)
         niisMask = NiiProcessor.ReadAllNiiInDir(dirSrcMask)
 
+        print()
         print("Niis to read: ")
         print(niisData)
         print(niisMask)
         # Split train set and test set
         niisAll = ImgDataSet.Split(niisData, niisMask, trainTestSplit)
 
-        if TRAIN or SAVE_DATA:
-            print("Making train set...")
-            if not USE_DISK:
-                datasetTrain = ImgDataSetMemory()
-                datasetTrain.InitFromNiis(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], slices=slices,
-                                          classes=classes, resize=resize, aug=aug, preproc=preproc)
-            else:
-                datasetTrain = ImgDataSetDisk()
-                datasetTrain.InitFromNiis(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], dirSaveDataTrain, slices=slices,
-                                          classes=classes, resize=resize, aug=aug, preproc=preproc)
-            print("Done")
+    if SAVE_DATA:
 
-        if TEST or SAVE_DATA:
-            print("Making test set...")
-            if not USE_DISK:
-                datasetTest = ImgDataSetMemory()
-                datasetTest.InitFromNiis(niisAll["niisDataTest"], niisAll["niisMaskTest"], slices=slices, classes=classes,
-                                         resize=resize, aug=aug, preproc=preproc)
-            else:
-                datasetTest = ImgDataSetDisk()
-                datasetTest.InitFromNiis(niisAll["niisDataTest"], niisAll["niisMaskTest"], dirSaveDataTest, slices=slices,
-                                         classes=classes,resize=resize, aug=aug, preproc=preproc)
-            print("Done")
+        # Create and save training data
 
-        if SAVE_DATA and not USE_DISK:
+        if PRINT_TIME:
+            startMkTrain = time.time()
+        print("Making training set...")
+
+        if not USE_DISK:
+            datasetTrain = ImgDataSetMemory()
+            datasetTrain.InitFromNiis(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], slices=slices,
+                                      classes=classes, resize=resize, aug=aug, preproc=preproc)
+        else:
+            datasetTrain = ImgDataSetDisk()
+            datasetTrain.InitFromNiis(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], dirSaveDataTrain,
+                                      slices=slices,
+                                      classes=classes, resize=resize, aug=aug, preproc=preproc)
+
+        print("Done")
+        if PRINT_TIME:
+            endMkTrain = time.time()
+            print("  Making training set took:", CommonUtil.DecodeSecondToFormatedString(endMkTrain - startMkTrain))
+
+        if not USE_DISK:
+            if PRINT_TIME:
+                startSaveTrainData = time.time()
+            print("Saving train data...")
             CommonUtil.Mkdir(dirSaveDataTrain)
             datasetTrain.SaveToNpys(dirSaveDataTrain)
+            print("Done")
+            if PRINT_TIME:
+                endSaveTrainData = time.time()
+                print("  Saving train data took:",
+                      CommonUtil.DecodeSecondToFormatedString(endSaveTrainData - startSaveTrainData))
+
+            del datasetTrain
+            gc.collect()
+
+        # Create and save test data
+
+        if PRINT_TIME:
+            startMkTest = time.time()
+        print("Making test set...")
+        if not USE_DISK:
+            datasetTest = ImgDataSetMemory()
+            datasetTest.InitFromNiis(niisAll["niisDataTest"], niisAll["niisMaskTest"], slices=slices,
+                                     classes=classes,
+                                     resize=resize, aug=aug, preproc=preproc)
+        else:
+            datasetTest = ImgDataSetDisk()
+            datasetTest.InitFromNiis(niisAll["niisDataTest"], niisAll["niisMaskTest"], dirSaveDataTest,
+                                     slices=slices,
+                                     classes=classes, resize=resize, aug=aug, preproc=preproc)
+        print("Done")
+        if PRINT_TIME:
+            endMkTest = time.time()
+            print("  Making test set took:", CommonUtil.DecodeSecondToFormatedString(endMkTest - startMkTest))
+
+        if not USE_DISK:
+            if PRINT_TIME:
+                startSaveTestData = time.time()
+            print("Saving test data...")
             CommonUtil.Mkdir(dirSaveDataTest)
             datasetTest.SaveToNpys(dirSaveDataTest)
-
-    if LOAD_DATA:
-        if TRAIN:
-            print("Loading train set...")
-            if not USE_DISK:
-                datasetTrain = ImgDataSetMemory()
-                datasetTrain.InitFromNpys(dirSaveDataTrain, slices=slices, classes=classes)
-            else:
-                datasetTrain = ImgDataSetDisk()
-                datasetTrain.InitFromDir(dirSaveDataTrain, slices=slices, classes=classes)
             print("Done")
+            if PRINT_TIME:
+                endSaveTestData = time.time()
+                print("  Saving test data took:",
+                      CommonUtil.DecodeSecondToFormatedString(endSaveTestData - startSaveTestData))
 
-        if TEST:
-            print("Loading test set...")
-            if not USE_DISK:
-                datasetTest = ImgDataSetMemory()
-                datasetTest.InitFromNpys(dirSaveDataTest, slices=slices, classes=classes)
-            else:
-                datasetTest = ImgDataSetDisk()
-                datasetTest.InitFromDir(dirSaveDataTest, slices=slices, classes=classes)
-            print("Done")
-
+            del datasetTest
+            gc.collect()
 
     if TRAIN or TEST:
 
@@ -300,31 +328,82 @@ def RunNN(classes, slices, resize, \
         # Choose device
         #
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")#torch.device("cpu")
+        print()
         print("Device: ", str(device))
 
         # Create DataLoaders
         # TODO: 使用torchvision?
         # DataLoader return tensor [batch,h,w,c]
 
-        if TRAIN:
-            print("Making train loader...")
-            loaderTrain = data.DataLoader(dataset=datasetTrain, batch_size=batchSizeTrain, shuffle=True)
-            print("Done")
-        if TEST:
-            print("Making test loader...")
-            loaderTest = data.DataLoader(dataset=datasetTest, batch_size=1, shuffle=False)
-            print("Done")
-
         # Prepare Network
         net = Network(classes).type(CommonUtil.PackIntoTorchType(dataFmt)).to(device)
 
         if TRAIN:
+
+            # Load training data/Mk training data
+            if LOAD_DATA or SAVE_DATA:
+                if PRINT_TIME:
+                    startLoadTrain = time.time()
+                print()
+                print("Loading training set...")
+                if not USE_DISK:
+                    datasetTrain = ImgDataSetMemory()
+                    datasetTrain.InitFromNpys(dirSaveDataTrain, slices=slices, classes=classes)
+                else:
+                    datasetTrain = ImgDataSetDisk()
+                    datasetTrain.InitFromDir(dirSaveDataTrain, slices=slices, classes=classes)
+                    print(datasetTrain.imgDataWrappers.__len__())
+                print("Done")
+                if PRINT_TIME:
+                    endLoadTrain = time.time()
+                    print("  Loading training set took:",
+                          CommonUtil.DecodeSecondToFormatedString(endLoadTrain - startLoadTrain))
+            else:
+                if PRINT_TIME:
+                    startMkTrain = time.time()
+                print("Making training set...")
+
+                if not USE_DISK:
+                    datasetTrain = ImgDataSetMemory()
+                    datasetTrain.InitFromNiis(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], slices=slices,
+                                              classes=classes, resize=resize, aug=aug, preproc=preproc)
+                else:
+                    datasetTrain = ImgDataSetDisk()
+                    datasetTrain.InitFromNiis(niisAll["niisDataTrain"], niisAll["niisMaskTrain"], dirSaveDataTrain,
+                                              slices=slices,
+                                              classes=classes, resize=resize, aug=aug, preproc=preproc)
+
+                print("Done")
+                if PRINT_TIME:
+                    endMkTrain = time.time()
+                    print("  Making training set took:",
+                          CommonUtil.DecodeSecondToFormatedString(endMkTrain - startMkTrain))
+
+            # Make loader
+            print()
+            print("Making train loader...")
+            loaderTrain = data.DataLoader(dataset=datasetTrain, batch_size=batchSizeTrain, shuffle=True)
+            print("Done")
+
+            if PRINT_TIME:
+                startTrain = time.time()
+            print()
+            print("Training...")
             criterion = LossFunc
             optimiser = topti.Adam(net.parameters(), lr=learningRate)  # Minimise the loss using the Adam algorithm.
             if SAVE_LOSS:
                 runningLoss = np.zeros(epochs, dtype=np.float32)
 
+            global _abort
+            _abort = None
+            thd = Thread(target=anyKeyToAbort)
+            thd.daemon = True
+            thd.start()
+            print("NOTE: Input anything during training to abort before the next epoch.")
+
             for epoch in range(epochs):
+                if PRINT_TIME:
+                    startEpoch = time.time()
                 print("Running epoch: ",epoch+1)
                 epoLoss = 0
                 batchCount = 0
@@ -333,11 +412,11 @@ def RunNN(classes, slices, resize, \
                     #print("     Batch: ", i+1)
                     # Get a batch and potentially send it to GPU memory.
                     input = batch[0].type(CommonUtil.PackIntoTorchType(dataFmt))
-                    inputNP = input.numpy()
+                    # inputNP = input.numpy()
                     input = input.to(device)
 
                     mask = batch[1].type(CommonUtil.PackIntoTorchType(dataFmt)) # Required to be converted from bool to float
-                    maskNP = mask.numpy()
+                    # maskNP = mask.numpy()
                     mask = mask.to(device)
 
                     if DEBUG:
@@ -352,7 +431,7 @@ def RunNN(classes, slices, resize, \
 
                     # Forward pass through the network.
                     output = net(input)
-                    outputNP = output.cpu().detach().numpy()
+                    # outputNP = output.cpu().detach().numpy()
 
 
                     # output = output.flatten(start_dim=2)
@@ -379,15 +458,30 @@ def RunNN(classes, slices, resize, \
 
                 epoLoss = epoLoss / batchCount
                 print("Epoch Summary: Epoch: %2d, Loss: %f" % (epoch + 1, epoLoss))
+                if PRINT_TIME:
+                    endEpoch = time.time()
+                    print("  Epoch took:", CommonUtil.DecodeSecondToFormatedString(endEpoch - startEpoch))
                 print("-" * 30)
                 if SAVE_LOSS:
                     runningLoss[epoch] = epoLoss
+
+                if _abort is not None:
+                    # Abort
+                    epochs = epoch+1
+                    runningLoss = runningLoss[:epochs]
+                    break
+
+            print("Done")
+            if PRINT_TIME:
+                endTrain = time.time()
+                print("  Training took:", CommonUtil.DecodeSecondToFormatedString(endTrain - startTrain),"in total.")
+
 
             # Save model
             dirMdl, filenameMdl = os.path.split(pathModel)
             CommonUtil.Mkdir(dirMdl)
             torch.save(net.state_dict(), pathModel)
-            print("Saved model")
+            print("Model saved")
 
             if SAVE_LOSS:
                 # Output Running Loss
@@ -406,6 +500,51 @@ def RunNN(classes, slices, resize, \
             net.load_state_dict(torch.load(pathModel))
 
         if TEST:
+
+            # Load training data/Mk training data
+            if LOAD_DATA or SAVE_DATA:
+                if PRINT_TIME:
+                    startLoadTest = time.time()
+                print("Loading test set...")
+                if not USE_DISK:
+                    datasetTest = ImgDataSetMemory()
+                    datasetTest.InitFromNpys(dirSaveDataTest, slices=slices, classes=classes)
+                else:
+                    datasetTest = ImgDataSetDisk()
+                    datasetTest.InitFromDir(dirSaveDataTest, slices=slices, classes=classes)
+                print("Done")
+                if PRINT_TIME:
+                    endLoadTest = time.time()
+                    print("  Loading test set took:",
+                          CommonUtil.DecodeSecondToFormatedString(endLoadTest - startLoadTest))
+            else:
+                if PRINT_TIME:
+                    startMkTest = time.time()
+                print("Making test set...")
+                if not USE_DISK:
+                    datasetTest = ImgDataSetMemory()
+                    datasetTest.InitFromNiis(niisAll["niisDataTest"], niisAll["niisMaskTest"], slices=slices,
+                                             classes=classes,
+                                             resize=resize, aug=aug, preproc=preproc)
+                else:
+                    datasetTest = ImgDataSetDisk()
+                    datasetTest.InitFromNiis(niisAll["niisDataTest"], niisAll["niisMaskTest"], dirSaveDataTest,
+                                             slices=slices,
+                                             classes=classes, resize=resize, aug=aug, preproc=preproc)
+                print("Done")
+                if PRINT_TIME:
+                    endMkTest = time.time()
+                    print("  Making test set took:", CommonUtil.DecodeSecondToFormatedString(endMkTest - startMkTest))
+
+            # Make loader
+            print()
+            print("Making test loader...")
+            loaderTest = data.DataLoader(dataset=datasetTest, batch_size=1, shuffle=False)
+            print("Done")
+
+            if PRINT_TIME:
+                startTest = time.time()
+            print()
             print("Testing...")
 
             rateCorrect = 0
@@ -478,86 +617,19 @@ def RunNN(classes, slices, resize, \
                     gc.collect()
 
             print("Done")
+            if PRINT_TIME:
+                endTest = time.time()
+                print("  Testing took:", CommonUtil.DecodeSecondToFormatedString(endTest - startTest),"in total.")
 
             accuracy = rateCorrect / countBatch
             dice = dice / countBatch
 
+    if PRINT_TIME:
+        endProc = time.time()
+        print("*"*50)
+        print("  Procedure took:", CommonUtil.DecodeSecondToFormatedString(endProc - startProc))
+
     return accuracy, dice
-
-
-def TestNiiWrapper():
-    pathSrc = "../Sources/Data/data_nii"
-    pathTarg = "../Sources/Data/output"
-    pathSrcData = os.path.join(pathSrc, "data")
-    pathSrcMask = os.path.join(pathSrc, "masks")
-    pathNiisData = CommonUtil.GetFileFromThisRootDir(pathSrcData, "nii")
-    pathNiisMask = CommonUtil.GetFileFromThisRootDir(pathSrcMask, "nii")
-    for pathNii in pathNiisData:
-        nii = NiiProcessor.ReadNii(pathNii)
-        wrap = ImgDataWrapper(nii)
-        for i in range(0, wrap.GetImgCount(1)):
-            # Test 1 slice
-            img = wrap.Get(i)
-
-            imgCC = ImageProcessor.Rotate90(img, True)
-            imgCC = np.reshape(imgCC, (img.shape[0], img.shape[1]))
-            imgCC = ImageProcessor.MapToGrey255(imgCC)
-            ImageProcessor.ShowGrayImgHere(imgCC, str(i), (10, 10))
-
-            imgCW = ImageProcessor.Rotate90(img, False)
-            imgCW = np.reshape(imgCW, (img.shape[0], img.shape[1]))
-            imgCW = ImageProcessor.MapToGrey255(imgCW)
-            ImageProcessor.ShowGrayImgHere(imgCW, str(i), (10, 10))
-
-            # Test 3 slices
-            img = wrap.Get(i, 3)
-
-            imgCC = ImageProcessor.Rotate90(img, True)
-            imgCC = ImageProcessor.MapTo255(imgCC)
-            ImageProcessor.ShowClrImgHere(imgCC, str(i), (10, 10))
-
-            imgCW = ImageProcessor.Rotate90(img, False)
-            imgCW = ImageProcessor.MapTo255(imgCW)
-            ImageProcessor.ShowClrImgHere(imgCW, str(i), (10, 10))
-
-
-def TestImgDataSet():
-    pathSrc = "../Sources/Data/data_nii"
-    pathTarg = "../Sources/Data/output"
-    pathSrcData = os.path.join(pathSrc, "data")
-    pathSrcMask = os.path.join(pathSrc, "masks")
-
-    niisData = NiiProcessor.ReadAllNiiInDir(pathSrcData)
-    niisMask = NiiProcessor.ReadAllNiiInDir(pathSrcMask)
-
-    print("Making ImgNiiData ...")
-    imgNiiDataAll = ImgDataSet(niisData, niisMask, slices=3, classes=6, resize=(512,512))
-
-    print("Making Dataloader ...")
-    # DataLoader return tensor [batch,h,w,c]
-    loaderAll = data.DataLoader(dataset=imgNiiDataAll, batch_size=1, shuffle=True)
-
-    for i, batch in enumerate(loaderAll):
-        print("enumerate~")
-
-        # # batch-first
-        # img = batch[0].numpy()
-        # print(img.shape)
-        # img = img.reshape((img.shape[1], img.shape[2], img.shape[3]))
-        # imgCC = ImageProcessor.Rotate90(img, True)
-        # imgCC = np.reshape(imgCC, (img.shape[0], img.shape[1]))
-        # imgCC = ImageProcessor.MapTo255(imgCC)
-        # ImageProcessor.ShowGrayImgHere(imgCC, str(i), (10, 10))
-        #
-        # mask = batch[1].numpy()
-        # print(mask.shape)
-        # print("Mask unique: ", np.unique(mask))
-        # mask = mask.reshape((mask.shape[1], mask.shape[2], mask.shape[3]))
-        # maskCC = ImageProcessor.Rotate90(mask, True)
-        # maskCC = np.reshape(maskCC, (img.shape[0], img.shape[1]))
-        # maskCC = ImageProcessor.MapTo255(maskCC)
-        # ImageProcessor.ShowGrayImgHere(maskCC, str(i), (10, 10))
-
 
 def TestNetwork():
     torch.cuda.empty_cache()
@@ -641,7 +713,7 @@ def Main():
 
     # Train or Test
     toSaveData = True
-    toLoadData = False
+    toLoadData = True
     toTrain = True
     toTest = True
     toSaveRunnningLoss = True
@@ -663,7 +735,7 @@ def Main():
 
     dirSrc = "../../../Sources/Data/data_nii"
 
-    dirRoot = "../../../Sources/T4C2"
+    dirRoot = "../../../Sources/T4C2_HalfData"
     dirSaveData = os.path.join(dirRoot,"SavedData")
     pathModel = os.path.join(dirRoot,"model.pth")
     dirTarg = os.path.join(dirRoot,"Output")
@@ -690,8 +762,8 @@ def Main_MEM_SAVE():
     randSeed = 0
 
     # Train or Test
-    toSaveData = True
-    toLoadData = False
+    toSaveData = False
+    toLoadData = True
     toTrain = True
     toTest = True
     toSaveRunnningLoss = True
@@ -732,6 +804,47 @@ def Main_MEM_SAVE():
 
     for j in range(classes):
         print("Class ", j, ": ", dice[j])
+
+def RESTORE_MISSING_DATA():
+    # Rand Seed
+    randSeed = 0
+
+    # Train or Test
+    toSaveData = False
+    toLoadData = False
+    toTrain = False
+    toTest = True
+    toSaveRunnningLoss = False
+    toSaveOutput = False
+
+    #
+    # Param Setting
+    #
+    #   Running Params
+    classes = 2
+    trainTestSplit = 0.8
+    batchSizeTrain = 8
+    slices = 3
+    resize = None #(256, 256)
+    epochs = 50
+    learningRate = 0.001
+    dataFmt = "float32"
+    toUseDisk = True
+
+    dirSrc = "../../../Sources/Data/data_nii"
+
+    dirRoot = "../../../Sources/Restore"
+    dirSaveData = os.path.join(dirRoot,"SavedData")
+    pathModel = os.path.join(dirRoot,"model.pth")
+    dirTarg = os.path.join(dirRoot,"Output")
+    pathRunningLossPlot = os.path.join(dirRoot,"loss.jpg")
+
+    accuracy, dice = RunNN(classes, slices, resize, \
+                           DataAug, PreprocT4,
+                           trainTestSplit, batchSizeTrain, epochs, learningRate, \
+                           toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput, \
+                           dirSaveData, pathModel, dirSrc, dirTarg, pathRunningLossPlot, \
+                           toUseDisk, dataFmt, randSeed)
 
 # Test train split compare
 # NOTE: NOT YET RUNNABLE!!!
@@ -1120,7 +1233,9 @@ def Main3():
         print("Class ", j, ": ", np.sum(dices[:, j]) / countRun)
 
 if __name__ == '__main__':
-    Main_MEM_SAVE()
+    #Main_MEM_SAVE()
+    Main()
+    #RESTORE_MISSING_DATA()
     #Main0()
     #Main1()
     #Main2()

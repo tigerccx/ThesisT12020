@@ -292,6 +292,20 @@ class CommonUtil():
                     imgsHM[i,j,:,k] = onehot
         return imgsHM
 
+    # In: float sec
+    # Out: int h, int m, int s
+    @staticmethod
+    def DecodeSecond(sec):
+        h = int(sec/3600)
+        m = int((sec-h*3600)/60)
+        s = int(sec-h*3600-m*60)
+        return h,m,s
+
+    # In: float sec
+    # Out: str strT
+    def DecodeSecondToFormatedString(sec, digitHour=2):
+        h,m,s = CommonUtil.DecodeSecond(sec)
+        return str(h).zfill(digitHour)+":"+str(m).zfill(2)+":"+str(s).zfill(2)
 
 class CV2ImageProcessor():
     # In: imgCV2: ndarray[] dtype = uint8
