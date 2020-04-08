@@ -57,29 +57,48 @@ class ImgDataSet(data.Dataset):
         return self.len
 
     @staticmethod
-    def Split(niisData, niisMask, trainSize):
+    def Split(niisData, niisMask, trainSize, toValidate=False, valiSize=None):
         idx = np.random.permutation(niisData.shape[0])
         idxSplit = int(len(idx) * trainSize)
         idxLen = len(idx)
-        niisDataTrain = np.asarray(niisData[idx[0:idxSplit]])
-        niisMaskTrain = np.asarray(niisMask[idx[0:idxSplit]])
-        niisDataTest = np.asarray(niisData[idx[idxSplit:idxLen]])
-        niisMaskTest = np.asarray(niisMask[idx[idxSplit:idxLen]])
 
-        print("Splitting into:")
-        print("-->Train: ", idx[0:idxSplit])
-        # print(niisDataTrain)
-        print("-->Test: ", idx[idxSplit:idxLen])
-        # print(niisDataTest)
-        # print("niisDataTrain\n", niisDataTrain)
-        # print("niisMaskTrain\n", niisMaskTrain)
-        # print("niisDataTest\n", niisDataTest)
-        # print("niisMaskTest\n", niisMaskTest)
+        if toValidate:
+            if valiSize is None:
+                raise Exception("Validation size cannot be None")
+            idxValSplit = int(idxSplit*valiSize)
 
-        return {'niisDataTrain': niisDataTrain, \
-                'niisMaskTrain': niisMaskTrain, \
-                'niisDataTest': niisDataTest, \
-                'niisMaskTest': niisMaskTest}
+            niisDataTrain = np.asarray(niisData[idx[0:idxValSplit]])
+            niisMaskTrain = np.asarray(niisMask[idx[0:idxValSplit]])
+            niisDataValidate = np.asarray(niisData[idx[idxValSplit:idxSplit]])
+            niisMaskValidate = np.asarray(niisMask[idx[idxValSplit:idxSplit]])
+            niisDataTest = np.asarray(niisData[idx[idxSplit:idxLen]])
+            niisMaskTest = np.asarray(niisMask[idx[idxSplit:idxLen]])
+            print("Splitting into:")
+            print("-->Train: ", idx[0:idxValSplit])
+            print("-->Validate: ", idx[idxValSplit:idxSplit])
+            print("-->Test: ", idx[idxSplit:idxLen])
+            return {'niisDataTrain': niisDataTrain, \
+                    'niisMaskTrain': niisMaskTrain, \
+                    "niisDataValidate": niisDataValidate, \
+                    "niisMaskValidate": niisMaskValidate, \
+                    'niisDataTest': niisDataTest, \
+                    'niisMaskTest': niisMaskTest}
+
+        else:
+            niisDataTrain = np.asarray(niisData[idx[0:idxSplit]])
+            niisMaskTrain = np.asarray(niisMask[idx[0:idxSplit]])
+            niisDataTest = np.asarray(niisData[idx[idxSplit:idxLen]])
+            niisMaskTest = np.asarray(niisMask[idx[idxSplit:idxLen]])
+            print("Splitting into:")
+            print("-->Train: ", idx[0:idxSplit])
+            print("-->Test: ", idx[idxSplit:idxLen])
+            return {'niisDataTrain': niisDataTrain, \
+                    'niisMaskTrain': niisMaskTrain, \
+                    'niisDataTest': niisDataTest, \
+                    'niisMaskTest': niisMaskTest}
+
+
+
 
 
 class ImgDataSetMemory(ImgDataSet):
