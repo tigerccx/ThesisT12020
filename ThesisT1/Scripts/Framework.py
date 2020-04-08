@@ -945,15 +945,15 @@ def TestNetwork():
 # NOTE: Need to change RunNN
 def Main_TRIAL():
     # Rand Seed
-    randSeed = 0
+    randSeed = 2
 
     # Train or Test
     toSaveData = False
     toLoadData = True
-    toTrain = False
+    toTrain = True
     toTest = True
-    toSaveRunnningLoss = False
-    toSaveOutput = False
+    toSaveRunnningLoss = True
+    toSaveOutput = True
 
     #
     # Param Setting
@@ -982,8 +982,8 @@ def Main_TRIAL():
     accuracy, dice = RunNN(classes, slices, resize,
                            DataAug, PreprocDistBG_TRIAL,
                            trainTestSplit, batchSizeTrain, epochs, learningRate,
+                           toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
                            dirSaveData, pathModel, dirSrc, dirTarg, pathRunningLossPlot, pathRunningAccPlot, pathRunningDicePlot,
-                           dirSaveData, pathModel, dirSrc, dirTarg, pathRunningLossPlot,
                            toUseDisk, dataFmt, randSeed,
                            toValidate=True, trainValidationSplit=0.85)
 
@@ -1529,7 +1529,8 @@ def Main3():
 
 if __name__ == '__main__':
     #Main_MEM_SAVE()
-    Main()
+    #Main_TRIAL()
+    # Main()
     #RESTORE_MISSING_DATA()
     #Main0()
     #Main1()
