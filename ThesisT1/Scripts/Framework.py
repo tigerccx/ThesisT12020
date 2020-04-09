@@ -34,6 +34,9 @@ from DataAugAndPreProc import Preproc0_TRIAL
 from DataAugAndPreProc import PreprocT4
 from DataAugAndPreProc import DataAug
 
+from Network import UNet_0
+from Network import UNet_1
+
 from LossFunc import MulticlassDiceLoss
 
 #MACRO
@@ -45,88 +48,6 @@ _abort = None
 def anyKeyToAbort():
     global _abort
     _abort = input()
-
-
-# Original Network
-# file:///D:/Sources/Study/Thesis%20Study/Prof%20E%20Meijering/Deep%20Learning%20for%20Muscle%20Segmentation%20in%20MRI%20and%20DTI%20Images/SEMANTIC%20SEGMENTATION%20OF%20THIGH%20MUSCLE%20USING%202.5D.pdf
-class Network(tnn.Module):
-    # Network Definition
-    def __init__(self, classes):
-        super(Network, self).__init__()
-        # Conv(↓)
-        # torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True)
-        self.conv1 = tnn.Conv2d(3, 32, 3, padding=1)
-        self.conv2 = tnn.Conv2d(32, 64, 3, padding=1)
-        self.conv3 = tnn.Conv2d(64, 128, 3, padding=1)
-        self.conv4 = tnn.Conv2d(128, 256, 3, padding=1)
-        self.conv5 = tnn.Conv2d(256, 256, 3, padding=1)
-
-        # BatchNorm
-        self.bn1 = tnn.BatchNorm2d(64)
-        self.bn2 = tnn.BatchNorm2d(256)
-        self.bn3 = tnn.BatchNorm2d(128)
-        self.bn4 = tnn.BatchNorm2d(32)
-
-        # Maxpool
-        # orch.nn.MaxPool2d(kernel_size, stride=None, padding=0, dilation=1, return_indices=False, ceil_mode=False)
-        self.maxpool1 = tnn.MaxPool2d(2)
-
-        # UpSample
-        self.upsamp1 = tnn.Upsample(scale_factor=2)
-
-        # UpConv(↑)
-        self.upconv5 = tnn.ConvTranspose2d(256, 256, 3, padding=1)
-        self.upconv4 = tnn.ConvTranspose2d(512, 256, 3, padding=1)
-        self.upconv3 = tnn.ConvTranspose2d(256, 128, 3, padding=1)
-        self.upconv2 = tnn.ConvTranspose2d(192, 128, 3, padding=1)
-        self.upconv1 = tnn.ConvTranspose2d(128, 32, 3, padding=1)
-        self.upconv0 = tnn.ConvTranspose2d(32, classes, 3, padding=1)
-
-        # AnisoUpconv
-        # self.anisoUpconv1 = tnn.ConvTranspose2d(32, classes, (1, 11), padding=1)
-
-        # Softmax
-        self.softmax2d = tnn.Softmax2d()
-
-    def forward_0(self, input):
-        # Layer1(↓)
-        x2 = tfunc.leaky_relu(self.conv2(tfunc.leaky_relu(self.conv1(input))))
-
-        # Layer2(↓)
-        x5 = tfunc.leaky_relu(self.conv4(tfunc.leaky_relu(self.conv3(self.maxpool1(x2)))))
-
-        # Layer3(→)
-        x9 = self.upsamp1(tfunc.leaky_relu(self.upconv5(tfunc.leaky_relu(self.conv5(self.maxpool1(x5))))))
-
-        # Layer4(↑)
-        x10 = torch.cat([x5, x9], 1)
-        x13 = self.upsamp1(tfunc.leaky_relu(self.upconv3(tfunc.leaky_relu(self.upconv4(x10)))))
-
-        # Layer5(↑)
-        x14 = torch.cat([x2, x13], 1)
-        x17 = self.upconv0(tfunc.leaky_relu(self.upconv1(tfunc.leaky_relu(self.upconv2(x14)))))
-
-        return x17
-
-    def forward(self, input):
-        # Layer1(↓)
-        x2 = tfunc.leaky_relu(self.bn1(self.conv2(tfunc.leaky_relu(self.conv1(input)))))
-
-        # Layer2(↓)
-        x5 = tfunc.leaky_relu(self.bn2(self.conv4(tfunc.leaky_relu(self.conv3(self.maxpool1(x2))))))
-
-        # Layer3(→)
-        x9 = self.upsamp1(tfunc.leaky_relu(self.bn2(self.upconv5(tfunc.leaky_relu(self.conv5(self.maxpool1(x5)))))))
-
-        # Layer4(↑)
-        x10 = torch.cat([x5, x9], 1)
-        x13 = self.upsamp1(tfunc.leaky_relu(self.bn3(tfunc.leaky_relu(self.upconv3(self.upconv4(x10))))))
-
-        # Layer5(↑)
-        x14 = torch.cat([x2, x13], 1)
-        x17 = self.upconv0(tfunc.leaky_relu(self.bn4(self.upconv1(tfunc.leaky_relu(self.upconv2(x14))))))
-
-        return x17
 
 def weight_init(m):
     # 也可以判断是否为conv2d，使用相应的初始化方式
@@ -415,7 +336,7 @@ def RunNN(classes, slices, resize,
         # DataLoader return tensor [batch,h,w,c]
 
         # Prepare Network
-        net = Network(classes).type(CommonUtil.PackIntoTorchType(dataFmt)).to(device)
+        net = UNet_1(8, slices, classes, depth=5, inputHW=None, dropoutRate=0.5).type(CommonUtil.PackIntoTorchType(dataFmt)).to(device)#UNet_0(slices,classes).type(CommonUtil.PackIntoTorchType(dataFmt)).to(device)
 
         if TRAIN:
 
