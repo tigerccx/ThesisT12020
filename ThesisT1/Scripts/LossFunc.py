@@ -1,6 +1,7 @@
 
 import numpy as np
 import torch.nn as tnn
+import torch.nn.functional as tfunc
 from Utils import CommonUtil
 
 #MACRO
@@ -61,6 +62,13 @@ class MulticlassDiceLoss(tnn.Module):
 
         return totalLoss
 
+class SoftMaxMDL(tnn.Module):
+    def __init__(self):
+        super(SoftMaxMDL,self).__init__()
+        self.MDL = MulticlassDiceLoss()
+
+    def forward(self, output, target, weights=None):
+        return self.MDL(tfunc.softmax(output,dim=1),target,weights)
 
 def Test():
     pass
