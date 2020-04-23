@@ -42,8 +42,6 @@ from LossFunc import MulticlassDiceLoss
 #MACRO
 DEBUG = False
 DEBUG_TEST = False
-DEBUG_SHOW_INPUT = False
-OUTPUT_PROB = False
 
 # Abort
 _abort = None
@@ -105,30 +103,49 @@ def CE_Dice_LossF(output, target,scale=1e-3):
     muldice = MulticlassDiceLoss()
     return scale*cross_entropy(output,target)+muldice(tnn.Softmax(dim=1)(output), target)
 
+# Input: ndarray [IdxInBatch, H, W]
+#        ndarray [IdxInBatch, H, W]
+# Output: float diceCoef
+def diceCoef(input, target):
+    N = target.shape[0]
+    smooth = 1
+
+    input_flat = np.reshape(input, (N, -1))
+    target_flat = np.reshape(target, (N, -1))
+    # print("input_flat: ",input_flat)
+    # print("input_flat: ", input_flat.shape)
+    # print("input_flat: ", np.unique(input_flat))
+    # print("target_flat: ",target_flat)
+    # print("target_flat: ", target_flat.shape)
+    # print("target_flat: ", np.unique(target_flat))
+
+    intersection = input_flat * target_flat
+    # print("intersection: ",intersection)
+    # print("intersection: ", intersection.shape)
+    # print("target_flat: ", np.unique(intersection))
+
+    loss = ((2 * (intersection.sum(1)) + smooth) / (input_flat.sum(1) + target_flat.sum(1) + smooth)).sum()/N
+    # print("loss: ",loss)
+    # loss = 1 - loss.sum() / N
+
+    return loss.item()
+
 # Input: Tensor [IdxInBatch, H, W]
 #        Tensor [IdxInBatch, H, W]
 # Output: float diceCoef
 def diceCoefTorch(input, target):
-    smooth = 1
     N = target.shape[0]
+    smooth = 1
+
     input_flat = input.view((N, -1))
     target_flat = target.view((N, -1))
 
     intersection = input_flat * target_flat
 
-    # print("input_flat",input_flat.shape)
-    # print("target_flat", target_flat.shape)
-    # print("intersection", intersection.shape)
-    # print(torch.sum(intersection,1))
-    # print(2 * (torch.sum(intersection,1)) + smooth)
-    loss = torch.sum((2 * (torch.sum(intersection,1)) + smooth) / (torch.sum(input_flat,1) + torch.sum(target_flat,1) + smooth))
-    # print(loss)
+    loss = torch.sum((2 * (torch.sum(intersection,1)) + smooth) / (torch.sum(input_flat,1) + torch.sum(target_flat,1) + smooth)) / N
 
     return loss.item()
 
-def diceCoefAveTorch(input, target):
-    N = target.shape[0]
-    return diceCoefTorch(input,target)/ N
 
 #TODO: Add Temp for processed files
 #TODO: Add augmentationn
@@ -458,62 +475,13 @@ def RunNN(classes, slices, resize,
                 if PRINT_TIME:
                     startEpoch = time.time()
                 print("Running epoch: ",epoch+1)
-
-                # Run validation batch
-                if VALIDATE:
-                    epoLossVali = 0
-                    sampleCountVali = 0
-                    batchCountVali = 0
-                    accVali = 0
-                    diceVali = np.zeros(classes)
-                    with torch.no_grad():
-                        for i, batch in enumerate(loaderVali):
-
-                            # print("     Validation Batch: ", i+1)
-                            inputs = batch[0].type(CommonUtil.PackIntoTorchType(dataFmt))
-                            inputs = inputs.to(device)
-
-                            masks = batch[1].type(
-                                CommonUtil.PackIntoTorchType(dataFmt))  # Required to be converted from bool to float
-                            masks = masks.to(device)
-
-                            net.eval()
-                            outputs = net(inputs)
-
-                            # Loss
-                            loss = criterion(outputs, masks)
-                            ls = loss.item()
-                            if printLossPerBatch:
-                                print("VALI LOSS: ", ls)
-                            epoLossVali += ls
-
-                            # Acc
-                            predicts = torch.zeros_like(outputs)
-                            predicts = predicts.scatter(1, torch.max(outputs, 1, keepdim=True).indices, 1)
-                            accVali += torch.sum(masks == predicts).item() / masks.numel()
-
-                            # Dice
-                            for j in range(classes):
-                                predictClass = predicts[:, j, ...]
-                                maskClass = masks[:, j, ...]
-                                diceVali[j] += diceCoefAveTorch(predictClass, maskClass)
-
-                            sampleCountVali += inputs.shape[0]
-                            batchCountVali += 1
-
-                            gc.collect()
-
                 epoLoss = 0
                 acc = 0
                 dice = np.zeros(classes)
-                sampleCount = 0
+
                 batchCount = 0
 
-                if DEBUG_SHOW_INPUT:
-                    countImg = 0
-                    dirINPUTSAVE = "E:/Project/Python/ThesisT1/Sources/DEBUG_INPUT"
-
-                # Train batch
+                # Run batch
                 for i, batch in enumerate(loaderTrain):
                     #print("     Batch: ", i+1)
                     inputs = batch[0].type(CommonUtil.PackIntoTorchType(dataFmt))
@@ -522,41 +490,9 @@ def RunNN(classes, slices, resize,
                     masks = batch[1].type(CommonUtil.PackIntoTorchType(dataFmt)) # Required to be converted from bool to float
                     masks = masks.to(device)
 
-                    if DEBUG_SHOW_INPUT:
-                        CommonUtil.Mkdir(dirTarg)
-
-                        # Output
-                        inputsNP = inputs.detach().cpu().numpy()  # ndarray [IdxInBatch, Channel, H, W]
-                        inputsNP1 = np.transpose(inputsNP, (2, 3, 1, 0))  # ndarray [H, W, Channel, IdxInBatch]
-
-                        masksNP = masks.detach().cpu().numpy()  # ndarray [IdxInBatch, Channel, H, W]
-                        masksNP1 = np.transpose(masksNP, (2, 3, 1, 0))  # ndarray [H, W, Channel, IdxInBatch]
-                        masksNP2 = CommonUtil.UnpackFromOneHot(masksNP1)
-
-                        if OUTPUT_PROB:
-                            outputsNP = tnn.Softmax(dim=1)(outputs)[:,1,...].cpu().numpy()
-                            outputsNP1 = np.transpose(outputsNP, (1,2,0))  # ndarray [H, W, Channel, IdxInBatch]
-
-                        for iImg in range(inputsNP1.shape[3]):
-                            countImg+=1
-
-                            img = inputsNP1[:,:,int(inputsNP1.shape[2]/2),iImg]
-                            img255=ImageProcessor.MapTo255(img)
-                            # ImageProcessor.ShowGrayImgHere(img255, "P"+str(iImg),(10,10))
-                            ImageProcessor.SaveGrayImg(dirINPUTSAVE, str(countImg) + "_ORG.jpg", img255)
-
-                            mask = masksNP2[:,:, iImg]
-                            mask255 = ImageProcessor.MapTo255(mask, max=classes-1)
-                            # ImageProcessor.ShowGrayImgHere(mask255, "P" + str(iImg)+"_TARG", (10, 10))
-                            ImageProcessor.SaveGrayImg(dirINPUTSAVE, str(countImg) + "_TARG.jpg", mask255)
-
                     optimiser.zero_grad()
 
-                    # print("inputs.shape",inputs.shape)
-                    net.train()
                     outputs = net(inputs)
-                    # print("outputs.shape", outputs.shape)
-                    # print("masks.shape", outputs.shape)
                     loss = criterion(outputs, masks)
                     loss.backward()
                     optimiser.step()
@@ -576,10 +512,9 @@ def RunNN(classes, slices, resize,
                     for j in range(classes):
                         predictClass = predicts[:, j, ...]
                         maskClass = masks[:, j, ...]
-                        dice[j] += diceCoefAveTorch(predictClass, maskClass)
+                        dice[j] += diceCoefTorch(predictClass, maskClass)
 
-                    sampleCount+= inputs.shape[0]
-                    batchCount += 1
+                    batchCount+=1
 
                     # print("    ", "+" * 100)
                     # for name, params in net.named_parameters():
@@ -600,6 +535,45 @@ def RunNN(classes, slices, resize,
                     #         print("            WARNING: zero_grad!")
 
                     gc.collect()
+
+                # Run validation batch
+                if VALIDATE:
+                    epoLossVali = 0
+                    batchCountVali = 0
+                    accVali = 0
+                    diceVali = np.zeros(classes)
+                    with torch.no_grad():
+                        for i, batch in enumerate(loaderVali):
+                            # print("     Validation Batch: ", i+1)
+                            inputs = batch[0].type(CommonUtil.PackIntoTorchType(dataFmt))
+                            inputs = inputs.to(device)
+
+                            masks = batch[1].type(CommonUtil.PackIntoTorchType(dataFmt))  # Required to be converted from bool to float
+                            masks = masks.to(device)
+
+                            outputs = net(inputs)
+
+                            # Loss
+                            loss = criterion(outputs, masks)
+                            ls = loss.item()
+                            if printLossPerBatch:
+                                print("VALI LOSS: ", ls)
+                            epoLossVali += ls
+
+                            # Acc
+                            predicts = torch.zeros_like(outputs)
+                            predicts = predicts.scatter(1, torch.max(outputs, 1, keepdim=True).indices, 1)
+                            accVali += torch.sum(masks == predicts).item() / masks.numel()
+
+                            # Dice
+                            for j in range(classes):
+                                predictClass = predicts[:, j, ...]
+                                maskClass = masks[:, j, ...]
+                                diceVali[j] += diceCoefTorch(predictClass, maskClass)
+
+                            batchCountVali += 1
+
+                            gc.collect()
 
                 epoLoss = epoLoss / batchCount
                 acc = acc / batchCount
@@ -781,83 +755,51 @@ def RunNN(classes, slices, resize,
 
             rateCorrect = 0
             dice = np.zeros(classes)
-            sampleCount = 0
-            batchCount = 0
+            countBatch = 0
             countImg = 0
-
-            testcount=0
-            testacc = 0
-            testcor = 0
-            testall = 0
 
             # Evaluate network on the test dataset.  We aren't calculating gradients, so disable autograd to speed up
             # computations and reduce memory usage.
             with torch.no_grad():
                 for i,batch in enumerate(loaderTest):
+                    countBatch += loaderTest.batch_size
 
                     inputs = batch[0].type(CommonUtil.PackIntoTorchType(dataFmt))
+
+                    inputsNP = inputs.numpy() #ndarray [IdxInBatch, Channel, H, W]
+                    inputsNP1 = np.transpose(inputsNP, (2, 3, 1, 0)) #ndarray [H, W, Channel, IdxInBatch]
+
                     inputs = inputs.to(device)
 
                     masks = batch[1].type(CommonUtil.PackIntoTorchType(dataFmt))
+
                     # print(masksNP1.shape)
                     masks = masks.to(device)
 
                     # Get predictions
-                    net.eval()
                     outputs = net(inputs)
 
                     # Acc
                     predicts = torch.zeros_like(outputs)
                     predicts = predicts.scatter(1, torch.max(outputs, 1, keepdim=True).indices, 1)
-                    batchAcc = torch.sum(masks == predicts).item() / masks.numel()
-                    # print(torch.sum(masks == predicts))
-                    # print(torch.sum(masks[:,0,...] == predicts[:,0,...]))
-                    # print(np.unique((masks == predicts).cpu().numpy()))
-                    # print(masks.numel())
-                    # print(masks.shape)
-
-                    # if testcount<32:
-                    #     testcount+=1
-                    #     testacc +=batchAcc
-                    #     testcor += torch.sum(masks == predicts).item()
-                    #     testall += masks.numel()
-                    # else:
-                    #     print(testcor)
-                    #     print(testacc/32)
-                    #     # print(testcor/testall)
-                    #     # print(testall)
-                    #     testcount = 1
-                    #     testacc = batchAcc
-                    #     testcor = torch.sum(masks == predicts).item()
-                    #     testall = masks.numel()
-
-                    # print(batchAcc)
-                    rateCorrect += batchAcc
-
+                    rateCorrect += torch.sum(masks == predicts).item() / masks.numel()
 
                     # Dice
                     for j in range(classes):
                         predictClass = predicts[:, j, ...]
                         maskClass = masks[:, j, ...]
-                        dice[j]+=diceCoefAveTorch(predictClass, maskClass)
+                        dice[j]+=diceCoefTorch(predictClass, maskClass)
 
                     if SAVE_OUTPUT:
                         CommonUtil.Mkdir(dirTarg)
 
                         # Output
-                        inputsNP = inputs.cpu().numpy()  # ndarray [IdxInBatch, Channel, H, W]
-                        inputsNP1 = np.transpose(inputsNP, (2, 3, 1, 0))  # ndarray [H, W, Channel, IdxInBatch]
-
                         masksNP = masks.cpu().numpy()  # ndarray [IdxInBatch, Channel, H, W]
                         masksNP1 = np.transpose(masksNP, (2, 3, 1, 0))  # ndarray [H, W, Channel, IdxInBatch]
                         masksNP2 = CommonUtil.UnpackFromOneHot(masksNP1)
 
                         predictsNP1 = np.transpose(predicts.cpu().numpy(), (2, 3, 1, 0))  # ndarray [H, W, Channel, IdxInBatch]
                         predictsNP2 = CommonUtil.UnpackFromOneHot(predictsNP1)
-
-                        if OUTPUT_PROB:
-                            outputsNP = tnn.Softmax(dim=1)(outputs)[:,1,...].cpu().numpy()
-                            outputsNP1 = np.transpose(outputsNP, (1,2,0))  # ndarray [H, W, Channel, IdxInBatch]
 
                         for iImg in range(inputsNP1.shape[3]):
                             countImg+=1
@@ -872,18 +814,10 @@ def RunNN(classes, slices, resize,
                             # ImageProcessor.ShowGrayImgHere(mask255, "P" + str(iImg)+"_TARG", (10, 10))
                             ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_TARG.jpg", mask255)
 
-                            predict = predictsNP2[:,:, iImg]
-                            predict255 = ImageProcessor.MapTo255(predict, max=classes-1)
+                            predicts = predictsNP2[:,:, iImg]
+                            predict255 = ImageProcessor.MapTo255(predicts, max=classes-1)
                             # ImageProcessor.ShowGrayImgHere(predict255, "P" + str(iImg)+"_PRED", (10, 10))
                             ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_PRED.jpg", predict255)
-
-                            if OUTPUT_PROB:
-                                output = outputsNP1[:, :, iImg]
-                                output255 = ImageProcessor.MapTo255(output,max=1.0)
-                                ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_OUTPROB.jpg", output255)
-
-                    sampleCount += loaderTest.batch_size
-                    batchCount += 1
 
                     gc.collect()
 
@@ -892,8 +826,8 @@ def RunNN(classes, slices, resize,
                 endTest = time.time()
                 print("  Testing took:", CommonUtil.DecodeSecondToFormatedString(endTest - startTest),"in total.")
 
-            accuracy = rateCorrect / batchCount
-            dice = dice / batchCount
+            accuracy = rateCorrect / countBatch
+            dice = dice / countBatch
 
     if PRINT_TIME:
         endProc = time.time()
@@ -987,7 +921,7 @@ def Main():
     randSeed = 0
 
     # Train or Test
-    toSaveData = True
+    toSaveData = False
     toLoadData = True
     toTrain = True
     toTest = True
@@ -999,18 +933,18 @@ def Main():
     #
     #   Running Params
     classes = 2
-    trainTestSplit = 0.8 #0.9
-    batchSizeTrain = 32 #24
-    slices = 1
+    trainTestSplit = 0.8
+    batchSizeTrain = 32
+    slices = 3
     resize = None #(256, 256)
-    epochs = 30 #250
-    learningRate = 0.0005 #0.0001 #0.004
+    epochs = 100
+    learningRate = 0.0005 #0.004
     dataFmt = "float32"
     toUseDisk = False
 
     dirSrc = "../../../Sources/Data/data_nii"
 
-    dirRoot = "../../../Sources/T1C2_HalfData"
+    dirRoot = "../../../Sources/T4C2_HalfData"
     dirSaveData = os.path.join(dirRoot,"SavedData")
     pathModel = os.path.join(dirRoot,"model.pth")
     dirTarg = os.path.join(dirRoot,"Output")
@@ -1024,7 +958,7 @@ def Main():
                            toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
                            dirSaveData, pathModel, dirSrc, dirTarg, pathRunningLossPlot, pathRunningAccPlot, pathRunningDicePlot,
                            toUseDisk, dataFmt, randSeed,
-                           toValidate=True, trainValidationSplit=0.85) #trainValidationSplit=0.95
+                           toValidate=True, trainValidationSplit=0.85)
 
     print("Classification accuracy: ", accuracy)
 
@@ -1128,10 +1062,396 @@ def RESTORE_MISSING_DATA():
                            dirSaveData, pathModel, dirSrc, dirTarg, pathRunningLossPlot,
                            toUseDisk, dataFmt, randSeed)
 
+# Test train split compare
+# NOTE: NOT YET RUNNABLE!!!
+def Main0():
+    # Rand Seed
+    randSeed = 0
+
+    # Train or Test
+    toTrain = True
+    toTest = True
+    toSaveRunnningLoss = True
+    toSaveOutput = False#True
+
+    #
+    # Param Setting
+    #
+    #   Running Params
+    classes = 7
+    trainTestSplit = 0.8
+    batchSizeTrain = 8
+    slices = 3
+    resize = (256, 256)  # None
+    epochs = 50
+    learningRate = 0.001
+    dataFmt = "float32"
+
+    dirModel = "../../../Sources/Net/CompareTrainSplit"
+    dirLoss = "../../../Sources/Data/loss/CompareTrainSplit"
+
+    pathSrc = "../../../Sources/Data/data_nii"
+    pathTarg = "../../../Sources/Data/output_temp"  # "../../../Sources/Data/output_D2"#"../../../Sources/Data/output"#"../../../Sources/Data/output_6"
+
+    countRun = 5
+
+    # Test from 1 train sets to 11 train sets
+    X = np.arange(1,12,1)
+    print(X)
+    XRate = X/12
+    print(XRate)
+    YAcc = np.zeros((len(X),countRun))
+    YAccAve = np.zeros(len(X))
+    YDiceClasses = np.zeros((len(X),classes,countRun))
+    YDiceClassesAve = np.zeros((len(X), classes))
+
+    for i in range(len(XRate)):
+
+        print("\n\n")
+        print("="*66)
+        print("=" * 66)
+        print("Run for Train Size: ",X[i])
+        print("\n")
+
+        accAve = 0
+        diceAve = np.zeros(classes)
+
+        for count in range(countRun):
+            fnModel = "model_Split"+str(i)+"_Run"+str(count) + ".pth"
+            fnLoss = "loss_Split"+str(i)+"_Run"+str(count) + ".jpg"
+            pathModel = os.path.join(dirModel, fnModel)
+            pathRunningLossPlot = os.path.join(dirLoss, fnLoss)
+
+            print("\n")
+            print("*" * 44)
+            print("Run: ", count)
+            trainTestSplit = XRate[i]
+            accuracy, dice = RunNN(classes, slices, resize,
+                                   DataAug, PreprocDistBG,
+                                   trainTestSplit, batchSizeTrain, epochs, learningRate,
+                                   toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
+                                   pathModel, pathSrc, pathTarg, pathRunningLossPlot,
+                                   dataFmt, randSeed)
+            print("Classification accuracy: ", accuracy)
+
+            print("Dice Coef:")
+
+            for j in range(classes):
+                print("Class ", j, ": ", dice[j])
+
+            YAcc[i,count] = accuracy
+            YDiceClasses[i,:,count] = dice
+
+            accAve+=accuracy
+            diceAve+=dice
+
+        accAve/=countRun
+        diceAve/=countRun
+
+        YAccAve[i] = accAve
+        YDiceClassesAve[i,:] = diceAve
+
+    # Plot Acc
+    plt.title("Accuracy")
+    plt.xlabel("Train Set Size")
+    plt.ylabel("Accuracy")
+    plt.plot(X, YAccAve, label="Accuracy")
+
+    for count in range(countRun):
+        Y = YAcc[:,count]
+        plt.scatter(X, Y, marker='x')
+
+    plt.legend()
+    plt.show()
+
+
+    # Plot Dice
+    plt.title("Dice")
+    plt.subplot(1,2,1)
+    plt.xlabel("Train Set Size")
+    plt.ylabel("Dice")
+    plt.plot(X, YDiceClassesAve[:, 0], label="Dark Background")
+    plt.plot(X, YDiceClassesAve[:, 1], label="Other Muscles and Tissues")
+    plt.plot(X, YDiceClassesAve[:, 2], label="Class 2")
+    plt.plot(X, YDiceClassesAve[:, 3], label="Class 3")
+    plt.plot(X, YDiceClassesAve[:, 4], label="Class 4")
+    plt.plot(X, YDiceClassesAve[:, 5], label="Class 5")
+    plt.plot(X, YDiceClassesAve[:, 6], label="Target Muscle")
+    plt.legend(loc=2, bbox_to_anchor=(1.05,1.0),borderaxespad = 0.)
+    plt.show()
+
+    for cls in range(classes):
+        plt.title("Class "+str(cls))
+        plt.xlabel("Train Set Size")
+        plt.ylabel("Dice")
+        plt.plot(X, YDiceClassesAve[:, cls])
+        for count in range(countRun):
+            Y = YDiceClasses[:, cls, count]
+            plt.scatter(X, Y, marker='x')
+        plt.show()
+
+# Test dist or not dist BG
+# NOTE: NOT YET RUNNABLE!!!
+def Main1():
+    # Rand Seed
+    randSeed = 0
+
+    # Train or Test
+    toTrain = True
+    toTest = True
+    toSaveRunnningLoss = True
+    toSaveOutput = False
+
+    #
+    # Param Setting
+    #
+    #   Running Params
+    trainTestSplit = 0.8
+    batchSizeTrain = 8
+    slices = 3
+    resize = (256, 256)  # None
+    epochs = 50
+    learningRate = 0.001
+    dataFmt = "float32"
+
+    pathSrc = "../../../Sources/Data/data_nii"
+    pathTarg = "../../../Sources/Data/output_test"  # "../../../Sources/Data/output_D2"#"../../../Sources/Data/output"#"../../../Sources/Data/output_6"
+
+
+    countRun = 3
+
+    classesNDBG = 6
+    accNDBG = np.zeros(countRun)
+    dicesNDBG = np.zeros((countRun, classesNDBG))
+    classes = 7
+    acc = np.zeros(countRun)
+    dices = np.zeros((countRun, classes))
+
+    # NDBG
+    for i in range(countRun):
+        pathModel = "../../../Sources/Net/PredictingAllLabels/model_C6_" + str(i) + ".pth"
+        pathRunningLossPlot = "../../../Sources/Data/loss/PredictingAllLabels/loss_C6_" + str(i) + ".jpg"
+        accuracy, dice = RunNN(classesNDBG, slices, resize,
+                               None, Preproc0,
+                               trainTestSplit, batchSizeTrain, epochs, learningRate,
+                               toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
+                               pathModel, pathSrc, pathTarg, pathRunningLossPlot,
+                               dataFmt, randSeed)
+
+        print("Classification accuracy: ", accuracy)
+
+        print("Dice Coef:")
+
+        for j in range(classesNDBG):
+            print("Class ", j, ": ", dice[j])
+
+        accNDBG[i] = accuracy
+        for j in range(classesNDBG):
+            dicesNDBG[i, j] = dice[j]
+
+    # Usual
+    for i in range(countRun):
+        pathModel = "../../../Sources/Net/PredictingAllLabels/model_C7_" + str(i) + ".pth"
+        pathRunningLossPlot = "../../../Sources/Data/loss/PredictingAllLabels/loss_C7_" + str(i) + ".jpg"
+        accuracy, dice = RunNN(classes, slices, resize,
+                               None, PreprocDistBG,
+                               trainTestSplit, batchSizeTrain, epochs, learningRate,
+                               toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
+                               pathModel, pathSrc, pathTarg, pathRunningLossPlot,
+                               dataFmt, randSeed)
+
+        print("Classification accuracy: ", accuracy)
+
+        print("Dice Coef:")
+
+        for j in range(classes):
+            print("Class ", j, ": ", dice[j])
+
+        acc[i] = accuracy
+        for j in range(classes):
+            dices[i, j] = dice[j]
+
+    print("*"*66)
+    print("NDBG:")
+    print("Classification accuracy: ", accNDBG)
+
+    print("Dice Coef:")
+    for j in range(classesNDBG):
+        print("Class ", j, ": ", dicesNDBG[:, j])
+
+    print("Acc Ave: ", np.sum(accNDBG)/countRun)
+    print("Dice Ave:")
+    for j in range(classesNDBG):
+        print("Class ", j, ": ", np.sum(dicesNDBG[:, j])/countRun)
+
+
+    print("*" * 66)
+    print("Usual:")
+    print("Classification accuracy: ", acc)
+
+    print("Dice Coef:")
+    for j in range(classes):
+        print("Class ", j, ": ", dices[:, j])
+
+    print("Acc Ave: ", np.sum(acc) / countRun)
+    print("Dice Ave:")
+    for j in range(classes):
+        print("Class ", j, ": ", np.sum(dices[:, j]) / countRun)
+
+# Test loss print
+# NOTE: NOT YET RUNNABLE!!!
+def Main2():
+    # Rand Seed
+    randSeed = 0
+
+    # Train or Test
+    toTrain = True
+    toSaveRunnningLoss = True
+    toTest = True
+    toSaveOutput = True  # True
+
+    #
+    # Param Setting
+    #
+    #   Running Params
+    classes = 6
+    trainTestSplit = 0.8
+    batchSizeTrain = 8
+    slices = 3
+    resize = (256, 256)  # None
+    epochs = 50
+    learningRate = 0.001
+    dataFmt = "float32"
+
+    pathModel = "./model_C6.pth"  # "./model_D2.pth"#"./model.pth"#"./model_6.pth"
+    pathSrc = "../../../Sources/Data/data_nii"
+    pathTarg = "../../../Sources/Data/output_C6"  # "../../../Sources/Data/output_D2"#"../../../Sources/Data/output"#"../../../Sources/Data/output_6"
+    pathRunningLossPlot = "../../../Sources/Data/loss/loss_C6.jpg"
+
+    accuracy, dice = RunNN(classes, slices, resize,
+                           None, Preproc0,
+                           trainTestSplit, batchSizeTrain, epochs, learningRate,
+                           toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
+                           pathModel, pathSrc, pathTarg, pathRunningLossPlot,
+                           dataFmt, randSeed)
+
+    print("Classification accuracy: ", accuracy)
+
+    print("Dice Coef:")
+
+    for j in range(classes):
+        print("Class ", j, ": ", dice[j])
+
+# Test marking only target class (Distinguish BG and not)
+# NOTE: NOT YET RUNNABLE!!!
+def Main3():
+    # Rand Seed
+    randSeed = 0
+
+    # Train or Test
+    toTrain = True
+    toTest = True
+    toSaveRunnningLoss = True
+    toSaveOutput = True
+
+    #
+    # Param Setting
+    #
+    #   Running Params
+    trainTestSplit = 0.8
+    batchSizeTrain = 8
+    slices = 3
+    resize = (256, 256)  # None
+    epochs = 50
+    learningRate = 0.001
+    dataFmt = "float32"
+
+    pathSrc = "../../../Sources/Data/data_nii"
+    pathTarg = "../../../Sources/Data/output_test_0"
+
+    countRun = 3
+
+    classesNDBG = 2
+    accNDBG = np.zeros(countRun)
+    dicesNDBG = np.zeros((countRun, classesNDBG))
+    classes = 3
+    acc = np.zeros(countRun)
+    dices = np.zeros((countRun, classes))
+
+    # NDBG
+    for i in range(countRun):
+        pathModel = "../../../Sources/Net/PredictingOnlyTarget/model_C2_"+str(i)+".pth"
+        pathRunningLossPlot = "../../../Sources/Data/loss/PredictingOnlyTarget/loss_C2_"+str(i)+".jpg"
+        accuracy, dice = RunNN(classesNDBG, slices, resize,
+                               None, Preproc0,
+                               trainTestSplit, batchSizeTrain, epochs, learningRate,
+                               toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
+                               pathModel, pathSrc, pathTarg, pathRunningLossPlot,
+                               dataFmt, randSeed)
+
+        print("Classification accuracy: ", accuracy)
+
+        print("Dice Coef:")
+
+        for j in range(classesNDBG):
+            print("Class ", j, ": ", dice[j])
+
+        accNDBG[i] = accuracy
+        for j in range(classesNDBG):
+            dicesNDBG[i, j] = dice[j]
+
+    # Usual
+    for i in range(countRun):
+        pathModel = "../../../Sources/Net/PredictingOnlyTarget/model_C3_" + str(i) + ".pth"
+        pathRunningLossPlot = "../../../Sources/Data/loss/PredictingOnlyTarget/loss_C3_" + str(i) + ".jpg"
+        accuracy, dice = RunNN(classes, slices, resize,
+                               None, PreprocDistBG,
+                               trainTestSplit, batchSizeTrain, epochs, learningRate,
+                               toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
+                               pathModel, pathSrc, pathTarg, pathRunningLossPlot,
+                               dataFmt, randSeed)
+
+        print("Classification accuracy: ", accuracy)
+
+        print("Dice Coef:")
+
+        for j in range(classes):
+            print("Class ", j, ": ", dice[j])
+
+        acc[i] = accuracy
+        for j in range(classes):
+            dices[i, j] = dice[j]
+
+    print("*" * 66)
+    print("NDBG:")
+    print("Classification accuracy: ", accNDBG)
+
+    print("Dice Coef:")
+    for j in range(classesNDBG):
+        print("Class ", j, ": ", dicesNDBG[:, j])
+
+    print("Acc Ave: ", np.sum(accNDBG) / countRun)
+    print("Dice Ave:")
+    for j in range(classesNDBG):
+        print("Class ", j, ": ", np.sum(dicesNDBG[:, j]) / countRun)
+
+    print("*" * 66)
+    print("Usual:")
+    print("Classification accuracy: ", acc)
+
+    print("Dice Coef:")
+    for j in range(classes):
+        print("Class ", j, ": ", dices[:, j])
+
+    print("Acc Ave: ", np.sum(acc) / countRun)
+    print("Dice Ave:")
+    for j in range(classes):
+        print("Class ", j, ": ", np.sum(dices[:, j]) / countRun)
+
 if __name__ == '__main__':
     #Main_MEM_SAVE()
     #Main_TRIAL()
-    Main()
+    # Main()
     #RESTORE_MISSING_DATA()
     #Main0()
     #Main1()
