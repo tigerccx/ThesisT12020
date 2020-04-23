@@ -1,9 +1,14 @@
+import torch
+from torch import tensor
+import torch.nn as tnn
+import torch.nn.functional as tfunc
+
 #
 # First UNet
 #
 # Original Network
 # file:///D:/Sources/Study/Thesis%20Study/Prof%20E%20Meijering/Deep%20Learning%20for%20Muscle%20Segmentation%20in%20MRI%20and%20DTI%20Images/SEMANTIC%20SEGMENTATION%20OF%20THIGH%20MUSCLE%20USING%202.5D.pdf
-class Unet_0(tnn.Module):
+class UNet_0(tnn.Module):
     # Network Definition
     def __init__(self, sclices, classes):
         super(Unet_0, self).__init__()
