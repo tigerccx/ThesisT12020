@@ -972,7 +972,6 @@ def RunNNMulti(types, classes, slices, resize,
             startMkTrain = time.time()
         print("Making training set...")
 
-
         datasetTrain = ImgDataSetMultiTypesMemory()
         datasetTrain.InitFromNiis(niisAll["arrNiisDataTrain"], niisAll["niisMaskTrain"], slices=slices,
                                   classes=classes, resize=resize, aug=aug, preproc=preproc)
@@ -1032,7 +1031,7 @@ def RunNNMulti(types, classes, slices, resize,
             startMkTest = time.time()
         print("Making test set...")
 
-        datasetTest = ImgDataSetMemory()
+        datasetTest = ImgDataSetMultiTypesMemory()
         datasetTest.InitFromNiis(niisAll["arrNiisDataTest"], niisAll["niisMaskTest"], slices=slices,classes=classes,
                                  resize=resize, aug=aug, preproc=preproc)
 
@@ -1202,7 +1201,6 @@ def RunNNMulti(types, classes, slices, resize,
                     diceVali = np.zeros(classes)
                     with torch.no_grad():
                         for i, batch in enumerate(loaderVali):
-
                             # print("     Validation Batch: ", i+1)
                             inputs = batch[0].type(CommonUtil.PackIntoTorchType(dataFmt))
                             inputs = inputs.to(device)
@@ -1249,12 +1247,18 @@ def RunNNMulti(types, classes, slices, resize,
 
                 # Train batch
                 for i, batch in enumerate(loaderTrain):
+
                     #print("     Batch: ", i+1)
                     inputs = batch[0].type(CommonUtil.PackIntoTorchType(dataFmt))
                     inputs = inputs.to(device)
 
                     masks = batch[1].type(CommonUtil.PackIntoTorchType(dataFmt)) # Required to be converted from bool to float
                     masks = masks.to(device)
+
+                    # masks_ = masks.detach().cpu().numpy()
+                    # print(masks_.shape)
+                    # print("mask_0", np.unique(masks_[:, 0, ...]))
+                    # print("mask_1", np.unique(masks_[:, 1, ...]))
 
                     if DEBUG_SHOW_INPUT:
                         CommonUtil.Mkdir(dirTarg)
@@ -1482,7 +1486,7 @@ def RunNNMulti(types, classes, slices, resize,
                     startMkTest = time.time()
                 print("Making test set...")
 
-                datasetTest = ImgDataSetMemory()
+                datasetTest = ImgDataSetMultiTypesMemory()
                 datasetTest.InitFromNiis(niisAll["arrNiisDataTest"], niisAll["niisMaskTest"], slices=slices,classes=classes,
                                          resize=resize, aug=aug, preproc=preproc)
 
@@ -1782,12 +1786,11 @@ def MainMT():
     epochs = 30 #250
     learningRate = 0.0005 #0.0001 #0.004
     dataFmt = "float32"
-    toUseDisk = False
 
-    dirsSrcData = ["../../../Sources/Data/data_nii/",]
-    dirSrcMask = "../../../Sources/Data/data_nii/masks"
+    dirsSrcData = ["../../../Sources/Data/data_nii/dataBkup/T3","../../../Sources/Data/data_nii/dataBkup/T4"] #["../../../Sources/Data/data_nii/dataBkup/ljpt","../../../Sources/Data/data_nii/dataBkup/ljpt1"]
+    dirSrcMask = "../../../Sources/Data/data_nii/masks" #"../../../Sources/Data/data_nii/maskLJPT"
 
-    dirRoot = "../../../Sources/T1C2_HalfData"
+    dirRoot = "../../../Sources/T3T4C2_HalfData"
     dirSaveData = os.path.join(dirRoot,"SavedData")
     pathModel = os.path.join(dirRoot,"model.pth")
     dirTarg = os.path.join(dirRoot,"Output")
@@ -1795,7 +1798,7 @@ def MainMT():
     pathRunningAccPlot = os.path.join(dirRoot,"acc.jpg")
     pathRunningDicePlot = os.path.join(dirRoot,"dice.jpg")
 
-    accuracy, dice = RunNN(types, classes, slices, resize,
+    accuracy, dice = RunNNMulti(types, classes, slices, resize,
                            DataAugMultiNiis, PreprocMultiNiis,
                            trainTestSplit, batchSizeTrain, epochs, learningRate,
                            toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
@@ -1908,7 +1911,8 @@ def RESTORE_MISSING_DATA():
 if __name__ == '__main__':
     #Main_MEM_SAVE()
     #Main_TRIAL()
-    Main()
+    # Main()
+    MainMT()
     #RESTORE_MISSING_DATA()
     #Main0()
     #Main1()

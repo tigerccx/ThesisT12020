@@ -46,11 +46,18 @@ class ImgDataSet(data.Dataset):
         # print(idxWrapper, ",", idxImg)
         img0, target0 = self.imgDataWrappers[idxWrapper].Get(idxImg,
                                                              self.slices)  # ndarray[H,W,Slice]  ndarray[H,W,Channel]
+        # print(target0.shape)
+        # print("target00", np.unique(target0[..., 0]))
+        # print("target01", np.unique(target0[..., 1]))
 
         img = np.transpose(img0, (2, 0, 1))  # ndarray[Slice,H,W]
         target = np.transpose(target0, (2, 0, 1))  # ndarray[Channel,H,W] dtype=int
         # print("img",img.shape)
         # print("target",target.shape)
+        # print(target.shape)
+        # print("target0", np.unique(target0[..., 0]))
+        # print("target1", np.unique(target0[..., 1]))
+
         return img, target
 
     def __len__(self):
@@ -206,7 +213,7 @@ class ImgDataSetMemory(ImgDataSet):
 
 
 class ImgDataSetMultiTypesMemory(ImgDataSet):
-    # Input: arrNiisData ndarray[IdxNii,Type]
+    # Input: arrNiisData ndarray[IdxNii, Type]
     #        niisMask ndarray[IdxNii]
     #        slices, classes int
     #        resize tuple
@@ -225,14 +232,14 @@ class ImgDataSetMultiTypesMemory(ImgDataSet):
 
         print("Constructing Data and Masks...")
         print("-" * 32)
-        for i in range(arrNiisData.shape[0]):
+
+        for i in range(arrNiisData.shape[0]): # for each sample
             print("  File",i+1,":")
             print("  Loading...")
 
             arrAtlasesImg = None # ndarray[Type,CountAug,H,W,Slice] fmt=Grey1
-            for j in range(arrNiisData.shape[1]):
-                niisData = arrNiisData[i,j]
-                niiImg = niisData[i]
+            for j in range(arrNiisData.shape[1]): # for each type
+                niiImg = arrNiisData[i,j]
                 atlasesImg = np.asarray([NiiProcessor.ReadGrey1ImgsFromNii(niiImg)])
                 if arrAtlasesImg is None:
                     arrAtlasesImg = np.array([atlasesImg])
@@ -253,7 +260,7 @@ class ImgDataSetMultiTypesMemory(ImgDataSet):
                      ndarray[CountAug,H,W,Slice] fmt=GreyStep
                 '''
                 print("  Augmenting...")
-                arrAtlasesImg, atlasesMask = aug(arrAtlasesImg[:,0], atlasesMask[0])
+                arrAtlasesImg, atlasesMask = aug(arrAtlasesImg[:,0,...], atlasesMask[0])
 
             gc.collect()
 
@@ -261,7 +268,7 @@ class ImgDataSetMultiTypesMemory(ImgDataSet):
 
             for j in range(arrAtlasesImg.shape[1]):
                 self.imgDataWrappers = np.insert(self.imgDataWrappers, len(self.imgDataWrappers), \
-                                                 ImgDataWrapperMemory(arrAtlasesImg[:,j,...], atlasesMask[j], classes, resize=resize, preproc=preproc), \
+                                                 ImgDataWrapperMultiTypesMemory(np.transpose(arrAtlasesImg[:,j,...], (1, 2, 0, 3)), atlasesMask[j], classes, resize=resize, preproc=preproc), \
                                                  axis=0)
             del (arrAtlasesImg)
             del (atlasesMask)
@@ -305,7 +312,7 @@ class ImgDataSetMultiTypesMemory(ImgDataSet):
 
     def LoadFromNpys(self, dir, classes):
 
-        self.imgDataWrappers = np.empty(0, dtype=ImgDataWrapperMemory)
+        self.imgDataWrappers = np.empty(0, dtype=ImgDataWrapperMultiTypesMemory)
 
         npysImgs = CommonUtil.GetFileFromThisRootDir(os.path.join(dir, "arrImgs"), ".npy")
         npysMasks = CommonUtil.GetFileFromThisRootDir(os.path.join(dir, "masks"), ".npy")
@@ -325,13 +332,13 @@ class ImgDataSetMultiTypesMemory(ImgDataSet):
                 raise Exception("Masks is none. No mask has been read.")
 
             self.imgDataWrappers = np.insert(self.imgDataWrappers, len(self.imgDataWrappers), \
-                                             ImgDataWrapperMemory(imgs, masks, classes, imgDataFmt=imgs.dtype,
+                                             ImgDataWrapperMultiTypesMemory(imgs, masks, classes, imgDataFmt=imgs.dtype,
                                                                   maskDataFmt=masks.dtype, isMaskOneHot=True), \
                                              axis=0)
 
     @staticmethod
     def Split(arrNiisData, niisMask, trainSize, toValidate=False, valiSize=None):
-        idx = np.random.permutation(niisData.shape[0])
+        idx = np.random.permutation(niisMask.shape[0])
         idxSplit = int(len(idx) * trainSize)
         idxLen = len(idx)
 
@@ -339,24 +346,24 @@ class ImgDataSetMultiTypesMemory(ImgDataSet):
             if valiSize is None:
                 raise Exception("Validation size cannot be None")
             idxValSplit = int(idxSplit * valiSize)
-            arrNiisDataTrain = []
-            arrNiisDataValidate = []
-            arrNiisDataTest = []
-            for i in range(arrNiisData.shape[0]):
-                arrNiisDataTrain += [np.asarray(arrNiisData[i][idx[0:idxValSplit]])]
-                arrNiisDataValidate += [np.asarray(arrNiisData[i][idx[idxValSplit:idxSplit]])]
-                arrNiisDataTest += [np.asarray(arrNiisData[i][idx[idxSplit:idxLen]])]
-            arrNiisDataTrain = np.asarray(arrNiisDataTrain)
-            arrNiisDataValidate = np.asarray(arrNiisDataValidate)
-            arrNiisDataTest = np.asarray(arrNiisDataTest)
-
-            niisMaskTrain = np.asarray(niisMask[idx[0:idxValSplit]])
-            niisMaskValidate = np.asarray(niisMask[idx[idxValSplit:idxSplit]])
-            niisMaskTest = np.asarray(niisMask[idx[idxSplit:idxLen]])
             print("Splitting into:")
             print("-->Train: ", idx[0:idxValSplit])
             print("-->Validate: ", idx[idxValSplit:idxSplit])
             print("-->Test: ", idx[idxSplit:idxLen])
+            arrNiisDataTrain = []
+            arrNiisDataValidate = []
+            arrNiisDataTest = []
+            for i in range(len(arrNiisData)):
+                arrNiisDataTrain += [np.asarray(arrNiisData[i][idx[0:idxValSplit]])]
+                arrNiisDataValidate += [np.asarray(arrNiisData[i][idx[idxValSplit:idxSplit]])]
+                arrNiisDataTest += [np.asarray(arrNiisData[i][idx[idxSplit:idxLen]])]
+            arrNiisDataTrain = np.transpose(np.asarray(arrNiisDataTrain),(1,0))
+            arrNiisDataValidate = np.transpose(np.asarray(arrNiisDataValidate),(1,0))
+            arrNiisDataTest = np.transpose(np.asarray(arrNiisDataTest),(1,0))
+
+            niisMaskTrain = np.asarray(niisMask[idx[0:idxValSplit]])
+            niisMaskValidate = np.asarray(niisMask[idx[idxValSplit:idxSplit]])
+            niisMaskTest = np.asarray(niisMask[idx[idxSplit:idxLen]])
             return {'arrNiisDataTrain': arrNiisDataTrain, \
                     'niisMaskTrain': niisMaskTrain, \
                     "arrNiisDataValidate": arrNiisDataValidate, \
@@ -365,19 +372,19 @@ class ImgDataSetMultiTypesMemory(ImgDataSet):
                     'niisMaskTest': niisMaskTest}
 
         else:
+            print("Splitting into:")
+            print("-->Train: ", idx[0:idxSplit])
+            print("-->Test: ", idx[idxSplit:idxLen])
             arrNiisDataTrain = []
             arrNiisDataTest = []
             for i in range(arrNiisData.shape[0]):
                 arrNiisDataTrain += [np.asarray(arrNiisData[i][idx[0:idxSplit]])]
                 arrNiisDataTest += [np.asarray(arrNiisData[i][idx[idxSplit:idxLen]])]
-            arrNiisDataTrain = np.asarray(arrNiisDataTrain)
-            arrNiisDataTest = np.asarray(arrNiisDataTest)
+            arrNiisDataTrain = np.transpose(np.asarray(arrNiisDataTrain),(1,0))
+            arrNiisDataTest = np.transpose(np.asarray(arrNiisDataTest),(1,0))
 
             niisMaskTrain = np.asarray(niisMask[idx[0:idxSplit]])
             niisMaskTest = np.asarray(niisMask[idx[idxSplit:idxLen]])
-            print("Splitting into:")
-            print("-->Train: ", idx[0:idxSplit])
-            print("-->Test: ", idx[idxSplit:idxLen])
             return {'arrNiisDataTrain': arrNiisDataTrain, \
                     'niisMaskTrain': niisMaskTrain, \
                     'arrNiisDataTest': arrNiisDataTest, \
@@ -532,7 +539,7 @@ class ImgDataWrapperMemory(ImgDataWrapper):
 
 
 class ImgDataWrapperMultiTypesMemory(ImgDataWrapper):
-    # Input: arrImgs ndarray[Type, H, W, Slices] 【Note! Shape changes when stored】
+    # Input: arrImgs ndarray[H, W, Type, Slices] 【Note! Shape changes when stored】
     #        masks ndarray[H, W, Slices]
     #        classes int
     #        resize tuple
@@ -546,7 +553,7 @@ class ImgDataWrapperMultiTypesMemory(ImgDataWrapper):
     def __init__(self, arrImgs, masks, classes, resize=None, preproc=None, imgDataFmt=float, maskDataFmt=int,
                  isMaskOneHot=False):
 
-        self.arrImgs = np.transpose(arrImgs, (1, 2, 0, 3)) # ndarray[H, W, Type, Slices]
+        self.arrImgs = arrImgs # ndarray[H, W, Type, Slices]
         self.masks = masks
 
         if resize is not None:
@@ -582,21 +589,16 @@ class ImgDataWrapperMultiTypesMemory(ImgDataWrapper):
         if np.any(np.isnan(self.masks)):
             raise Exception("NAN Warning!")
 
-    #     def SaveToSingleNPY(self, dir, preFix, suffix=".npy"):
-    #         CommonUtil.Mkdir(dir)
-    #         for i in range(self.imgs.shape[-1]):
-    #             filename = preFix + "_" + str(i) + suffix
-    #             CommonUtil.MkFile(dir, filename)
-    #             np.save(os.path.join(dir, filename), self.imgs[..., i])
-
     # Out: ndarray[H,W,Type*Slices], ndarray[H,W,Channel]
     #                 [t0s0,t0s1,t0s2,...,t1s0,t1s1,...,...]
     def Get(self, idx, slices=1):
         shapeArrImg = self.arrImgs.shape
-        return self.arrImgs[..., idx:idx + slices].reshape(shapeArrImg[0:2]+(shapeArrImg[2]*shapeArrImg[3])), self.masks[..., self.GetCenterIdx(idx, slices)]
+        arrImgs = self.arrImgs[..., idx:idx + slices].reshape(shapeArrImg[0:2]+(shapeArrImg[2]*slices,))
+        masks = self.masks[..., self.GetCenterIdx(idx, slices)]
+        return arrImgs, masks
 
     def GetImgCount(self, slices=1):
-        return self.masks.shape[2] - slices + 1
+        return self.masks.shape[-1] - slices + 1
 
 
 class ImgDataWrapperDisk(ImgDataWrapper):

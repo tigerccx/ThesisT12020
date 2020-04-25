@@ -298,20 +298,23 @@ def DataAugMultiNiis(arrAtlasImg, atlasMask, countAug=1):
         for dataOrg and data Flip:
             Rand x4 : Sheer(-0.1:0.1,-0.1:0.1),Scale(0.95,1.05),Rot(-10,10)
     '''
-
-    arrAtlasImgU8 = np.transpose(np.asarray([np.asarray(ImageProcessor.MapTo255(arrAtlasImg), np.uint8)], dtype=np.uint8),(1,0,2,3)) # ndarray[Type,CountAug,H,W,Slice]
+    arrAtlasImgU8 = np.transpose(np.asarray([np.asarray(ImageProcessor.MapTo255(arrAtlasImg), np.uint8)], dtype=np.uint8),(1,0,2,3,4)) # ndarray[Type,CountAug,H,W,Slice]
     del (arrAtlasImg)
     gc.collect()
     atlasesMaskU8 = np.asarray([np.asarray(ImageProcessor.MapTo255(atlasMask), np.uint8)], dtype=np.uint8)
     del (atlasMask)
     gc.collect()
 
+
     # Flip img
-    arrImgsU8Flip = np.empty(arrAtlasImgU8[:,0].shape)
+    arrImgsU8Flip = np.empty(arrAtlasImgU8[:,0].shape) # ndarray[Type,H,W,Slice]
+
+
     for t in range(arrAtlasImgU8.shape[0]):
         for i in range(arrAtlasImgU8[t,0].shape[2]):
             arrImgsU8Flip[t,...,i] = CV2ImageProcessor.Flip(arrAtlasImgU8[t,0,...,i], 0)
-        arrAtlasImgU8[t] = np.insert(arrAtlasImgU8[t], len(arrAtlasImgU8[t]), arrImgsU8Flip[t], axis=0)
+
+    arrAtlasImgU8 = np.insert(arrAtlasImgU8, arrAtlasImgU8.shape[1], arrImgsU8Flip, axis=1)
 
     # Flip mask
     masksU8Flip = np.empty(atlasesMaskU8[0].shape)
@@ -320,21 +323,39 @@ def DataAugMultiNiis(arrAtlasImg, atlasMask, countAug=1):
     atlasesMaskU8 = np.insert(atlasesMaskU8, len(atlasesMaskU8), masksU8Flip, axis=0)
 
     for i in range(countAug):
+        #
+        # Aug for original
+        #
+        # img
         sheer = (np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1))
         scale = np.random.uniform(0.95, 1.05)
         scale = (scale, scale)
         rot = np.random.uniform(-10.0, 10.0)
+        augTemp = np.empty((arrAtlasImgU8.shape[0],1)+arrAtlasImgU8.shape[2:])
         for t in range(arrAtlasImgU8.shape[0]):
-            arrAtlasImgU8[t] = np.concatenate((arrAtlasImgU8[t], AugCV2(arrAtlasImgU8[t,0], sheer, scale, rot, True)), axis=0)
+            augTemp[t] = AugCV2(arrAtlasImgU8[t,0], sheer, scale, rot, True) # ndarray[Type,CountAug,H,W,Slice] ndarray[CountAug,H,W,Slice]
+        arrAtlasImgU8 = np.concatenate((arrAtlasImgU8, augTemp), axis=1)  # concat ndarray[Type,CountAug,H,W,Slice] ndarray[Type,CountAug,H,W,Slice]
+        # mask
         atlasesMaskU8 = np.concatenate((atlasesMaskU8, AugCV2(atlasesMaskU8[0], sheer, scale, rot, False)), axis=0)
+        del augTemp
+        gc.collect()
 
+        #
+        # Aug for flip
+        #
+        # img
         sheer = (np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1))
         scale = np.random.uniform(0.95, 1.05)
         scale = (scale, scale)
         rot = np.random.uniform(-10.0, 10.0)
+        augTemp = np.empty((arrAtlasImgU8.shape[0],1)+arrAtlasImgU8.shape[2:])
         for t in range(arrAtlasImgU8.shape[0]):
-            arrAtlasImgU8[t] = np.concatenate((arrAtlasImgU8[t], AugCV2(arrImgsU8Flip[t], sheer, scale, rot, True)), axis=0)
+            augTemp[t] = AugCV2(arrImgsU8Flip[t], sheer, scale, rot, True) # ndarray[Type,CountAug,H,W,Slice] ndarray[CountAug,H,W,Slice]
+        arrAtlasImgU8 = np.concatenate((arrAtlasImgU8, augTemp), axis=1) # concat ndarray[Type,CountAug,H,W,Slice] ndarray[Type,CountAug,H,W,Slice]
+        # mask
         atlasesMaskU8 = np.concatenate((atlasesMaskU8, AugCV2(masksU8Flip, sheer, scale, rot, False)), axis=0)
+        del augTemp
+        gc.collect()
 
     arrAtlasImg = ImageProcessor.MapTo1(np.asarray(arrAtlasImgU8, np.int16))
     del(arrAtlasImgU8)
