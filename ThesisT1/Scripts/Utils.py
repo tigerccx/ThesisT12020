@@ -33,6 +33,8 @@ class NiiProcessor():
         return imgsG
 
     @staticmethod
+    # In: nii file
+    # Out: ndarray[H,W,Slice] fmt=Grey1
     def ReadGrey1ImgsFromNii(nii):
         imgs = NiiProcessor.ReadImgsFromNii(nii)
         imgsG = ImageProcessor.MapTo1(imgs)

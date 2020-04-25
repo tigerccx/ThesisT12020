@@ -97,9 +97,9 @@ def Preproc0_TRIAL(imgs, masks, classes):
     return imgs1, masks1
 
 def PreprocT4(imgs, masks, classes):
-    imgsU8 = np.asarray(ImageProcessor.MapTo255(imgs), np.uint8)
-    del imgs
-    gc.collect()
+    # imgsU8 = np.asarray(ImageProcessor.MapTo255(imgs), np.uint8)
+    # del imgs
+    # gc.collect()
 
     if classes < 2:
         raise Exception("Class count not enough!")
@@ -109,11 +109,29 @@ def PreprocT4(imgs, masks, classes):
     # Map all ignored classes to class 1 (unmarked muscle)
     masks1[masks1 >= 2] = 0
 
-    imgs1 = ImageProcessor.MapTo1(np.asarray(imgsU8, int))
-    del imgsU8
+    # imgs1 = ImageProcessor.MapTo1(np.asarray(imgsU8, int))
+    # del imgsU8
     gc.collect()
 
-    return imgs1, masks1
+    return imgs, masks1
+
+# Input: ndarray [H,W,Type,Slices] Grey1
+#        ndarray [H,W,Slice] GreyStep
+#        int
+# Output: ndarray [H,W,Type,Slices] Grey1
+#         ndarray [H,W,Slice] GreyStep
+def PreprocMultiNiis(arrImgs, masks, classes):
+    if classes < 2:
+        raise Exception("Class count not enough!")
+
+    masks1 = masks
+
+    # Map all ignored classes to class 1 (unmarked muscle)
+    masks1[masks1 >= 2] = 0
+
+    gc.collect()
+
+    return arrImgs, masks1
 
 '''
 Aug:
@@ -261,3 +279,68 @@ def DataAug(atlasImg, atlasMask, countAug=1):
     gc.collect()
 
     return atlasesImg, atlasesMask
+
+# In: ndarray[Type,H,W,Slice] fmt=Grey1
+#     ndarray[H,W,Slice] fmt=GreyStep
+# Out: ndarray[Type,CountAug,H,W,Slice] fmt=Grey1
+#      ndarray[CountAug,H,W,Slice] fmt=GreyStep
+def DataAugMultiNiis(arrAtlasImg, atlasMask, countAug=1):
+
+    #     atlasesImgU8 = AugCV2(imgsU8)
+    #     atlasesMaskU8 = AugCV2(masksU8)
+
+    '''
+    Aug:
+        Org:
+        dataOrg
+        Flip
+        dataFlip
+        for dataOrg and data Flip:
+            Rand x4 : Sheer(-0.1:0.1,-0.1:0.1),Scale(0.95,1.05),Rot(-10,10)
+    '''
+
+    arrAtlasImgU8 = np.transpose(np.asarray([np.asarray(ImageProcessor.MapTo255(arrAtlasImg), np.uint8)], dtype=np.uint8),(1,0,2,3)) # ndarray[Type,CountAug,H,W,Slice]
+    del (arrAtlasImg)
+    gc.collect()
+    atlasesMaskU8 = np.asarray([np.asarray(ImageProcessor.MapTo255(atlasMask), np.uint8)], dtype=np.uint8)
+    del (atlasMask)
+    gc.collect()
+
+    # Flip img
+    arrImgsU8Flip = np.empty(arrAtlasImgU8[:,0].shape)
+    for t in range(arrAtlasImgU8.shape[0]):
+        for i in range(arrAtlasImgU8[t,0].shape[2]):
+            arrImgsU8Flip[t,...,i] = CV2ImageProcessor.Flip(arrAtlasImgU8[t,0,...,i], 0)
+        arrAtlasImgU8[t] = np.insert(arrAtlasImgU8[t], len(arrAtlasImgU8[t]), arrImgsU8Flip[t], axis=0)
+
+    # Flip mask
+    masksU8Flip = np.empty(atlasesMaskU8[0].shape)
+    for i in range(atlasesMaskU8[0].shape[2]):
+        masksU8Flip[..., i] = CV2ImageProcessor.Flip(atlasesMaskU8[0,..., i], 0)
+    atlasesMaskU8 = np.insert(atlasesMaskU8, len(atlasesMaskU8), masksU8Flip, axis=0)
+
+    for i in range(countAug):
+        sheer = (np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1))
+        scale = np.random.uniform(0.95, 1.05)
+        scale = (scale, scale)
+        rot = np.random.uniform(-10.0, 10.0)
+        for t in range(arrAtlasImgU8.shape[0]):
+            arrAtlasImgU8[t] = np.concatenate((arrAtlasImgU8[t], AugCV2(arrAtlasImgU8[t,0], sheer, scale, rot, True)), axis=0)
+        atlasesMaskU8 = np.concatenate((atlasesMaskU8, AugCV2(atlasesMaskU8[0], sheer, scale, rot, False)), axis=0)
+
+        sheer = (np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1))
+        scale = np.random.uniform(0.95, 1.05)
+        scale = (scale, scale)
+        rot = np.random.uniform(-10.0, 10.0)
+        for t in range(arrAtlasImgU8.shape[0]):
+            arrAtlasImgU8[t] = np.concatenate((arrAtlasImgU8[t], AugCV2(arrImgsU8Flip[t], sheer, scale, rot, True)), axis=0)
+        atlasesMaskU8 = np.concatenate((atlasesMaskU8, AugCV2(masksU8Flip, sheer, scale, rot, False)), axis=0)
+
+    arrAtlasImg = ImageProcessor.MapTo1(np.asarray(arrAtlasImgU8, np.int16))
+    del(arrAtlasImgU8)
+    gc.collect()
+    atlasesMask = ImageProcessor.MapToGreyStep(np.asarray(atlasesMaskU8, np.int16))
+    del (atlasesMaskU8)
+    gc.collect()
+
+    return arrAtlasImg, atlasesMask
