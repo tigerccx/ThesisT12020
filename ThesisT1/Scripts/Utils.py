@@ -85,8 +85,14 @@ class NiiProcessor():
         return nii
 
     @staticmethod
+    def SaveImgsAsNii(imgs, niiRef):
+        nii = nib.nifti1.Nifti1Image(imgs, niiRef.affine, header=niiRef.header, extra=niiRef.extra,
+                                     file_map=niiRef.file_map)
+        return nii
+
+    @staticmethod
     def SaveNii(dir, niiFileName, nii):
-        CommonUtil.__Mkdir(dir)
+        CommonUtil.Mkdir(dir)
         nib.save(nii, os.path.join(dir, niiFileName))
         return
 
@@ -194,7 +200,6 @@ class ImageProcessor():
         img = cv2.merge([r, g, b])
         cv2.imwrite(os.path.join(dir, imgName), img)
         return
-
 
 class CommonUtil():
     @staticmethod
