@@ -20,18 +20,19 @@ DEBUG=False
 # Use Grey1 img
 class ImgDataSet(data.Dataset):
 
-    def SetSlices(self, slices):
+    def SetSlicesAndDis(self, slices, dis):
         self.slices = slices
         self.len = 0
+        self.dis = dis
         for wrapper in self.imgDataWrappers:
-            self.len += wrapper.GetImgCount(slices)
+            self.len += wrapper.GetImgCount(slices, dis)
 
     def __DecodeIndex(self, idx):
         idxWrapper = 0
         idxImg = 0
         for i in range(0, self.imgDataWrappers.shape[0]):
             wrapper = self.imgDataWrappers[i]
-            wrapperCount = wrapper.GetImgCount(self.slices)
+            wrapperCount = wrapper.GetImgCount(self.slices, self.dis)
             if idx - wrapperCount >= 0:
                 idx -= wrapperCount
             else:
@@ -44,19 +45,10 @@ class ImgDataSet(data.Dataset):
     def __getitem__(self, index):  # 返回的是ndarray
         idxWrapper, idxImg = self.__DecodeIndex(index)
         # print(idxWrapper, ",", idxImg)
-        img0, target0 = self.imgDataWrappers[idxWrapper].Get(idxImg,
-                                                             self.slices)  # ndarray[H,W,Slice]  ndarray[H,W,Channel]
-        # print(target0.shape)
-        # print("target00", np.unique(target0[..., 0]))
-        # print("target01", np.unique(target0[..., 1]))
+        img0, target0 = self.imgDataWrappers[idxWrapper].Get(idxImg, self.slices, self.dis)  # ndarray[H,W,Slice]  ndarray[H,W,Channel]
 
         img = np.transpose(img0, (2, 0, 1))  # ndarray[Slice,H,W]
         target = np.transpose(target0, (2, 0, 1))  # ndarray[Channel,H,W] dtype=int
-        # print("img",img.shape)
-        # print("target",target.shape)
-        # print(target.shape)
-        # print("target0", np.unique(target0[..., 0]))
-        # print("target1", np.unique(target0[..., 1]))
 
         return img, target
 
@@ -107,7 +99,7 @@ class ImgDataSet(data.Dataset):
 
 class ImgDataSetMemory(ImgDataSet):
     # @profile
-    def InitFromNiis(self, niisData, niisMask, slices=1, classes=2, resize=None, aug=None, preproc=None):
+    def InitFromNiis(self, niisData, niisMask, slices=1, dis=1, classes=2, resize=None, aug=None, preproc=None):
         # TODO: Maybe check data-mask match
         self.imgDataWrappers = np.empty(0, dtype=ImgDataWrapperMemory)
 
@@ -157,16 +149,16 @@ class ImgDataSetMemory(ImgDataSet):
 
         self.slices = 0  # int
         self.len = 0  # int
-        self.SetSlices(slices)
+        self.SetSlicesAndDis(slices,dis)
 
     # @profile
-    def InitFromNpys(self, dir, slices=1, classes=2):
+    def InitFromNpys(self, dir, slices=1, dis=1, classes=2):
 
         self.LoadFromNpys(dir, classes)
 
         self.slices = 0  # int
         self.len = 0  # int
-        self.SetSlices(slices)
+        self.SetSlicesAndDis(slices,dis)
 
     def SaveToNpys(self, dir):
         countWrappers = len(self.imgDataWrappers)
@@ -195,12 +187,9 @@ class ImgDataSetMemory(ImgDataSet):
             print("WARNING: Count of img inputs is different from count of mask inputs.")
         for i in range(len(npysImgs)):
             # print("Loading",i,":")
-            # print("  " + npysImgs[i])
-            # print("  " + npysMasks[i])
             imgs = np.load(npysImgs[i])
             masks = np.load(npysMasks[i])
-            # print(imgs.shape)
-            # print(masks.shape)
+
             if imgs is None:
                 raise Exception("Imgs is none. No img has been read.")
             if masks is None:
@@ -226,7 +215,7 @@ class ImgDataSetMultiTypesMemory(ImgDataSet):
     #                             int
     #                      Output: ndarray[H,W,Type,Slices] Grey1
     #                              ndarray [H,W,Slice] GreyStep
-    def InitFromNiis(self, arrNiisData, niisMask, slices=1, classes=2, resize=None, aug=None, preproc=None):
+    def InitFromNiis(self, arrNiisData, niisMask, slices=1, dis=1, classes=2, resize=None, aug=None, preproc=None):
         # TODO: Maybe check data-mask match
         self.imgDataWrappers = np.empty(0, dtype=ImgDataWrapperMultiTypesMemory)
 
@@ -282,16 +271,16 @@ class ImgDataSetMultiTypesMemory(ImgDataSet):
 
         self.slices = 0  # int
         self.len = 0  # int
-        self.SetSlices(slices)
+        self.SetSlicesAndDis(slices, dis)
 
     # @profile
-    def InitFromNpys(self, dir, slices=1, classes=2):
+    def InitFromNpys(self, dir, slices=1, dis=1, classes=2):
 
         self.LoadFromNpys(dir, classes)
 
         self.slices = 0  # int
         self.len = 0  # int
-        self.SetSlices(slices)
+        self.SetSlicesAndDis(slices,dis)
 
     def SaveToNpys(self, dir):
         countWrappers = len(self.imgDataWrappers)
@@ -392,7 +381,7 @@ class ImgDataSetMultiTypesMemory(ImgDataSet):
 
 
 class ImgDataSetDisk(ImgDataSet):
-    def InitFromNiis(self, niisData, niisMask, dirSave, slices=1, classes=2, resize=None, aug=None, preproc=None,
+    def InitFromNiis(self, niisData, niisMask, dirSave, slices=1, dis=1, classes=2, resize=None, aug=None, preproc=None,
                      maxNiiCountDigitAfterAug=4):
         # TODO: Maybe check data-mask match
         self.imgDataWrappers = np.empty(0, dtype=ImgDataWrapperDisk)
@@ -447,9 +436,9 @@ class ImgDataSetDisk(ImgDataSet):
 
         self.slices = 0  # int
         self.len = 0  # int
-        self.SetSlices(slices)
+        self.SetSlicesAndDis(slices, dis)
 
-    def InitFromDir(self, dirImgDataSet, slices=1, classes=2):
+    def InitFromDir(self, dirImgDataSet, slices=1, dis=1, classes=2):
         self.imgDataWrappers = np.empty(0, dtype=ImgDataWrapperDisk)
 
         dirsWrapper = os.listdir(dirImgDataSet)
@@ -461,7 +450,7 @@ class ImgDataSetDisk(ImgDataSet):
 
         self.slices = 0  # int
         self.len = 0  # int
-        self.SetSlices(slices)
+        self.SetSlicesAndDis(slices, dis)
 
 
 # Use Grey1 img (for final storage) ndarray [H,W,Slice]
@@ -470,16 +459,16 @@ class ImgDataSetDisk(ImgDataSet):
 # TODO: Maybe wrap image into a class
 class ImgDataWrapper():
 
-    def Get(self, idx, slices=1):
+    def Get(self, idx, slices=1, dis=1):
         raise NotImplementedError
 
-    def GetImgCount(self, slices=1):
+    def GetImgCount(self, slices=1, dis=1):
         raise NotImplementedError
 
-    def GetCenterIdx(self, idx, slices=1):
+    def GetCenterIdx(self, idx, slices=1, dis=1):
         if slices % 2 == 0:
             raise Exception("Slices count is even")
-        return int(idx + int(slices / 2))
+        return int(idx + int(slices / 2)*dis)
 
 
 class ImgDataWrapperMemory(ImgDataWrapper):
@@ -531,11 +520,12 @@ class ImgDataWrapperMemory(ImgDataWrapper):
     #             np.save(os.path.join(dir, filename), self.imgs[..., i])
 
     # Out: ndarray [H,W,Slices], ndarray[H,W,Channel]
-    def Get(self, idx, slices=1):
-        return self.imgs[..., idx:idx + slices], self.masks[..., self.GetCenterIdx(idx, slices)]
+    def Get(self, idx, slices=1, dis=1):
+        idxs = [idx+i*dis for i in range(slices)]
+        return self.imgs[..., idxs], self.masks[..., self.GetCenterIdx(idx, slices, dis)]
 
-    def GetImgCount(self, slices=1):
-        return self.imgs.shape[2] - slices + 1
+    def GetImgCount(self, slices=1, dis=1):
+        return self.imgs.shape[2] - int(slices/2)*dis*2
 
 
 class ImgDataWrapperMultiTypesMemory(ImgDataWrapper):
@@ -591,14 +581,15 @@ class ImgDataWrapperMultiTypesMemory(ImgDataWrapper):
 
     # Out: ndarray[H,W,Type*Slices], ndarray[H,W,Channel]
     #                 [t0s0,t0s1,t0s2,...,t1s0,t1s1,...,...]
-    def Get(self, idx, slices=1):
+    def Get(self, idx, slices=1, dis=1):
         shapeArrImg = self.arrImgs.shape
-        arrImgs = self.arrImgs[..., idx:idx + slices].reshape(shapeArrImg[0:2]+(shapeArrImg[2]*slices,))
-        masks = self.masks[..., self.GetCenterIdx(idx, slices)]
+        idxs = [idx + i * dis for i in range(slices)]
+        arrImgs = self.arrImgs[..., idxs].reshape(shapeArrImg[0:2]+(shapeArrImg[2]*slices,))
+        masks = self.masks[..., self.GetCenterIdx(idx, slices, dis)]
         return arrImgs, masks
 
-    def GetImgCount(self, slices=1):
-        return self.masks.shape[-1] - slices + 1
+    def GetImgCount(self, slices=1, dis=1):
+        return self.masks.shape[-1] - int(slices/2)*dis*2
 
 
 class ImgDataWrapperDisk(ImgDataWrapper):
@@ -681,23 +672,24 @@ class ImgDataWrapperDisk(ImgDataWrapper):
             self.pathsMasks += [pathMask]
 
     # Out: ndarray [H,W,Slices], ndarray[H,W,Channel]
-    def Get(self, idx, slices=1):
+    def Get(self, idx, slices=1, dis=1):
         imgsGet = None
+        idxs = [idx + i * dis for i in range(slices)]
 
-        for i in range(slices):
-            img = np.load(self.pathsImg[idx + i])
+        for i in idxs:
+            img = np.load(self.pathsImg[i])
             if imgsGet is None:
                 imgsGet = np.asarray([img])
             else:
                 imgsGet = np.insert(imgsGet, len(imgsGet), img, axis=0)
 
-        maskGet = np.load(self.pathsMasks[self.GetCenterIdx(idx, slices)])
+        maskGet = np.load(self.pathsMasks[self.GetCenterIdx(idx, slices, dis)])
 
         imgsGet = np.transpose(imgsGet, (1, 2, 0))
         return imgsGet, maskGet
 
-    def GetImgCount(self, slices=1):
-        return len(self.pathsImg) - slices + 1
+    def GetImgCount(self, slices=1, dis=1):
+        return len(self.pathsImg) - int(slices/2)*dis*2
 
 if __name__ == '__main__':
     pass
