@@ -47,6 +47,7 @@ DEBUG = False
 DEBUG_TEST = False
 DEBUG_SHOW_INPUT = False
 OUTPUT_PROB = False
+OUTPUT_NII = False
 
 # Abort
 _abort = None
@@ -133,6 +134,21 @@ def diceCoefAveTorch(input, target):
     N = target.shape[0]
     return diceCoefTorch(input,target)/ N
 
+
+# Some util funcs
+def MakeImgsToSave(countIW, datasetTest):
+    iwCur = datasetTest.imgDataWrappers[countIW]
+    lenIW = iwCur.GetImgCount(slices=datasetTest.slices, dis=datasetTest.dis)
+    idxBeg = iwCur.GetCenterIdx(0, slices=datasetTest.slices, dis=datasetTest.dis)
+    idxEnd = iwCur.GetCenterIdx(lenIW, slices=datasetTest.slices, dis=datasetTest.dis) + 1
+    imgNiiToSave = np.empty(iwCur.imgs.shape, dtype=int)
+    maskNiiToSave = np.empty(iwCur.masks.shape, dtype=int)
+    imgNiiToSave[..., 0:idxBeg] = 0
+    imgNiiToSave[..., idxEnd:] = 0
+    maskNiiToSave[..., 0:idxBeg] = 0
+    maskNiiToSave[..., idxEnd:] = 0
+    return imgNiiToSave, maskNiiToSave, idxBeg, idxEnd, lenIW
+
 #TODO: Add Temp for processed files
 #TODO: Add augmentationn
 #TODO: Try transfer learning
@@ -179,7 +195,7 @@ def RunNN(classes, slices, dis, resize,
     if PRINT_TIME:
         startProc = time.time()
 
-    if ((TRAIN or TEST) and not LOAD_DATA) or SAVE_DATA:
+    if ((TRAIN or TEST) and not LOAD_DATA) or SAVE_DATA or (TEST and SAVE_OUTPUT and OUTPUT_NII):
         #
         # Prepare Dataset
         #
@@ -787,10 +803,10 @@ def RunNN(classes, slices, dis, resize,
             batchCount = 0
             countImg = 0
 
-            testcount=0
-            testacc = 0
-            testcor = 0
-            testall = 0
+            if SAVE_DATA and OUTPUT_NII:
+                countIW = 0
+                countImgInIW = 0
+                imgNiiToSave, maskNiiToSave, idxBeg, idxEnd, lenIW = MakeImgsToSave(datasetTest,countIW)
 
             # Evaluate network on the test dataset.  We aren't calculating gradients, so disable autograd to speed up
             # computations and reduce memory usage.
@@ -850,14 +866,15 @@ def RunNN(classes, slices, dis, resize,
                         inputsNP = inputs.cpu().numpy()  # ndarray [IdxInBatch, Channel, H, W]
                         inputsNP1 = np.transpose(inputsNP, (2, 3, 1, 0))  # ndarray [H, W, Channel, IdxInBatch]
 
-                        masksNP = masks.cpu().numpy()  # ndarray [IdxInBatch, Channel, H, W]
-                        masksNP1 = np.transpose(masksNP, (2, 3, 1, 0))  # ndarray [H, W, Channel, IdxInBatch]
-                        masksNP2 = CommonUtil.UnpackFromOneHot(masksNP1)
+                        if not OUTPUT_NII:
+                            masksNP = masks.cpu().numpy()  # ndarray [IdxInBatch, Channel, H, W]
+                            masksNP1 = np.transpose(masksNP, (2, 3, 1, 0))  # ndarray [H, W, Channel, IdxInBatch]
+                            masksNP2 = CommonUtil.UnpackFromOneHot(masksNP1)
 
                         predictsNP1 = np.transpose(predicts.cpu().numpy(), (2, 3, 1, 0))  # ndarray [H, W, Channel, IdxInBatch]
                         predictsNP2 = CommonUtil.UnpackFromOneHot(predictsNP1)
 
-                        if OUTPUT_PROB:
+                        if not OUTPUT_NII and OUTPUT_PROB:
                             outputsNP = tnn.Softmax(dim=1)(outputs)[:,1,...].cpu().numpy()
                             outputsNP1 = np.transpose(outputsNP, (1,2,0))  # ndarray [H, W, Channel, IdxInBatch]
 
@@ -866,23 +883,41 @@ def RunNN(classes, slices, dis, resize,
 
                             img = inputsNP1[:,:,int(inputsNP1.shape[2]/2),iImg]
                             img255=ImageProcessor.MapTo255(img)
-                            # ImageProcessor.ShowGrayImgHere(img255, "P"+str(iImg),(10,10))
-                            ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_ORG.jpg", img255)
-
-                            mask = masksNP2[:,:, iImg]
-                            mask255 = ImageProcessor.MapTo255(mask, max=classes-1)
-                            # ImageProcessor.ShowGrayImgHere(mask255, "P" + str(iImg)+"_TARG", (10, 10))
-                            ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_TARG.jpg", mask255)
 
                             predict = predictsNP2[:,:, iImg]
                             predict255 = ImageProcessor.MapTo255(predict, max=classes-1)
-                            # ImageProcessor.ShowGrayImgHere(predict255, "P" + str(iImg)+"_PRED", (10, 10))
-                            ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_PRED.jpg", predict255)
 
-                            if OUTPUT_PROB:
-                                output = outputsNP1[:, :, iImg]
-                                output255 = ImageProcessor.MapTo255(output,max=1.0)
-                                ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_OUTPROB.jpg", output255)
+                            if OUTPUT_NII:
+                                if countImgInIW<lenIW:
+                                    # Not enough for one nii
+                                    imgNiiToSave[...,countImgInIW+idxBeg] = img255
+                                    maskNiiToSave[..., countImgInIW + idxBeg] = predict255
+                                    countImgInIW+=1
+                                else:
+                                    # Enough for one nii
+                                    # Save
+                                    imgNiiToSave[..., countImgInIW + idxBeg] = img255
+                                    maskNiiToSave[..., countImgInIW + idxBeg] = predict255
+                                    NiiProcessor.SaveNii(dirTarg,str(countIW)+"_IMG.nii",NiiProcessor.SaveImgsAsNii(imgNiiToSave, niisAll["niisDataTest"][countIW]))
+                                    NiiProcessor.SaveImgsAsNii(dirTarg,str(countIW)+"_MASK.nii",maskNiiToSave, niisAll["niisMaskTest"][countIW])
+
+                                    # New
+                                    countIW+=1
+                                    countImgInIW = 0
+                                    imgNiiToSave, maskNiiToSave, idxBeg, idxEnd, lenIW = MakeImgsToSave(datasetTest, countIW)
+
+                            else:
+                                ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_ORG.jpg", img255)
+                                ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_PRED.jpg", predict255)
+
+                                mask = masksNP2[:,:, iImg]
+                                mask255 = ImageProcessor.MapTo255(mask, max=classes-1)
+                                ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_TARG.jpg", mask255)
+
+                                if OUTPUT_PROB:
+                                    output = outputsNP1[:, :, iImg]
+                                    output255 = ImageProcessor.MapTo255(output,max=1.0)
+                                    ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_OUTPROB.jpg", output255)
 
                     sampleCount += loaderTest.batch_size
                     batchCount += 1

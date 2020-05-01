@@ -17,21 +17,31 @@ class NiiProcessor():
     def __init__(self):
         pass
 
+    # Input: path string
+    # Output: nifti1.Nifti1Image
     @staticmethod
     def ReadNii(path):
         nii = nib.load(path)
         return nii
 
+    # Input: nifti1.Nifti1Image
+    # Output: ndarray[W,H,Slices]
+    # Note: In this project, W and H are treated as swapped in the main framework.
+    #       Therefore, the image printed during the main framework will appear to be rotated 90°.
     @staticmethod
     def ReadImgsFromNii(nii):
         return np.asarray(nii.dataobj)
 
+    # Input: nifti1.Nifti1Image
+    # Output: ndarray[W,H,Slices] Grey255
     @staticmethod
     def ReadGrey255ImgsFromNii(nii):
         imgs = NiiProcessor.ReadImgsFromNii(nii)
         imgsG = ImageProcessor.MapTo255(imgs)
         return imgsG
 
+    # Input: nifti1.Nifti1Image
+    # Output: ndarray[W,H,Slices] Grey1
     @staticmethod
     # In: nii file
     # Out: ndarray[H,W,Slice] fmt=Grey1
@@ -40,17 +50,23 @@ class NiiProcessor():
         imgsG = ImageProcessor.MapTo1(imgs)
         return imgsG
 
+    # Input: nifti1.Nifti1Image
+    # Output: ndarray[W,H,Slices] GreyStep
     @staticmethod
     def ReadGreyStepImgsFromNii(nii):
         imgs = NiiProcessor.ReadImgsFromNii(nii)
         imgs = ImageProcessor.MapToGreyStep(imgs)
         return imgs
 
+    # Input: nifti1.Nifti1Image
+    # Output: ndarray[W,H,Slices] Original
     @staticmethod
     def ReadOriginalGreyImgsFromNii(nii):
         imgs = NiiProcessor.ReadImgsFromNii(nii)
         return imgs
 
+    # Input: dir string
+    # Output: ndarray[W,H,Slices*FileCount] Original
     @staticmethod
     def ReadImgsFromAllNiiInDir(dir):
         pathFiles = CommonUtil.GetFileFromThisRootDir(dir, "nii")
@@ -66,6 +82,8 @@ class NiiProcessor():
         print(imgsAll.shape)
         return imgsAll
 
+    # Input: dir string
+    # Output: ndarray[FileCount] nifti1.Nifti1Image
     @staticmethod
     def ReadAllNiiInDir(dir):
         pathNiis = CommonUtil.GetFileFromThisRootDir(dir, "nii")
@@ -78,18 +96,26 @@ class NiiProcessor():
                 niis = np.append(niis, [nii])
         return niis
 
+    # Input: imgs ndarray[W,H,Slices]
+    #        niiRef nifti1.Nifti1Image
     @staticmethod
     def SaveImgsIntoNii(imgs, niiRef):
         nii = copy.deepcopy(niiRef)
         nii.dataobj = imgs
         return nii
 
+    # Input: imgs ndarray[W,H,Slices]
+    #        niiRef nifti1.Nifti1Image
+    # Output: nifti1.Nifti1Image
     @staticmethod
     def SaveImgsAsNii(imgs, niiRef):
         nii = nib.nifti1.Nifti1Image(imgs, niiRef.affine, header=niiRef.header, extra=niiRef.extra,
                                      file_map=niiRef.file_map)
         return nii
 
+    # Input: dir string
+    #        niiFileName string
+    #        niiRef nifti1.Nifti1Image
     @staticmethod
     def SaveNii(dir, niiFileName, nii):
         CommonUtil.Mkdir(dir)
