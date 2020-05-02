@@ -47,7 +47,7 @@ DEBUG = False
 DEBUG_TEST = False
 DEBUG_SHOW_INPUT = False
 OUTPUT_PROB = False
-OUTPUT_NII = False
+OUTPUT_NII = True
 
 # Abort
 _abort = None
@@ -140,9 +140,9 @@ def MakeImgsToSave(countIW, datasetTest):
     iwCur = datasetTest.imgDataWrappers[countIW]
     lenIW = iwCur.GetImgCount(slices=datasetTest.slices, dis=datasetTest.dis)
     idxBeg = iwCur.GetCenterIdx(0, slices=datasetTest.slices, dis=datasetTest.dis)
-    idxEnd = iwCur.GetCenterIdx(lenIW, slices=datasetTest.slices, dis=datasetTest.dis) + 1
+    idxEnd = iwCur.GetCenterIdx(lenIW-1, slices=datasetTest.slices, dis=datasetTest.dis)+1
     imgNiiToSave = np.empty(iwCur.imgs.shape, dtype=int)
-    maskNiiToSave = np.empty(iwCur.masks.shape, dtype=int)
+    maskNiiToSave = np.empty(iwCur.masks.shape[0:2]+(iwCur.masks.shape[3],), dtype=int)
     imgNiiToSave[..., 0:idxBeg] = 0
     imgNiiToSave[..., idxEnd:] = 0
     maskNiiToSave[..., 0:idxBeg] = 0
@@ -803,10 +803,17 @@ def RunNN(classes, slices, dis, resize,
             batchCount = 0
             countImg = 0
 
-            if SAVE_DATA and OUTPUT_NII:
+            countIW = None
+            countImgInIW = None
+            imgNiiToSave = None
+            maskNiiToSave = None
+            idxBeg = None
+            idxEnd = None
+            lenIW = None
+            if SAVE_OUTPUT and OUTPUT_NII:
                 countIW = 0
                 countImgInIW = 0
-                imgNiiToSave, maskNiiToSave, idxBeg, idxEnd, lenIW = MakeImgsToSave(datasetTest,countIW)
+                imgNiiToSave, maskNiiToSave, idxBeg, idxEnd, lenIW = MakeImgsToSave(countIW,datasetTest)
 
             # Evaluate network on the test dataset.  We aren't calculating gradients, so disable autograd to speed up
             # computations and reduce memory usage.
@@ -888,9 +895,9 @@ def RunNN(classes, slices, dis, resize,
                             predict255 = ImageProcessor.MapTo255(predict, max=classes-1)
 
                             if OUTPUT_NII:
-                                if countImgInIW<lenIW:
+                                if countImgInIW<lenIW-1:
                                     # Not enough for one nii
-                                    imgNiiToSave[...,countImgInIW+idxBeg] = img255
+                                    imgNiiToSave[... , countImgInIW+idxBeg] = img255
                                     maskNiiToSave[..., countImgInIW + idxBeg] = predict255
                                     countImgInIW+=1
                                 else:
@@ -898,13 +905,15 @@ def RunNN(classes, slices, dis, resize,
                                     # Save
                                     imgNiiToSave[..., countImgInIW + idxBeg] = img255
                                     maskNiiToSave[..., countImgInIW + idxBeg] = predict255
-                                    NiiProcessor.SaveNii(dirTarg,str(countIW)+"_IMG.nii",NiiProcessor.SaveImgsAsNii(imgNiiToSave, niisAll["niisDataTest"][countIW]))
-                                    NiiProcessor.SaveImgsAsNii(dirTarg,str(countIW)+"_MASK.nii",maskNiiToSave, niisAll["niisMaskTest"][countIW])
+
+                                    NiiProcessor.SaveNii(dirTarg,str(countIW)+"_IMG.nii",NiiProcessor.SaveImgsAsNii(imgNiiToSave, niisAll["niisDataTest"][int(countIW/4)]))
+                                    NiiProcessor.SaveNii(dirTarg,str(countIW)+"_MASK.nii",NiiProcessor.SaveImgsAsNii(maskNiiToSave, niisAll["niisMaskTest"][int(countIW/4)]))
 
                                     # New
-                                    countIW+=1
-                                    countImgInIW = 0
-                                    imgNiiToSave, maskNiiToSave, idxBeg, idxEnd, lenIW = MakeImgsToSave(datasetTest, countIW)
+                                    if countIW<datasetTest.imgDataWrappers.shape[0]-1:
+                                        countIW+=1
+                                        countImgInIW = 0
+                                        imgNiiToSave, maskNiiToSave, idxBeg, idxEnd, lenIW = MakeImgsToSave(countIW,datasetTest)
 
                             else:
                                 ImageProcessor.SaveGrayImg(dirTarg, str(countImg) + "_ORG.jpg", img255)
@@ -1751,10 +1760,10 @@ def Main():
     # Train or Test
     toSaveData = False
     toLoadData = True
-    toTrain = True
+    toTrain = False
     toTest = True
     toSaveRunnningLoss = True
-    toSaveOutput = False
+    toSaveOutput = True
 
     #
     # Param Setting
@@ -1773,7 +1782,7 @@ def Main():
 
     dirSrc = "../../../Sources/Data/data_nii"
 
-    dirRoot = "../../../Sources/T1C2_HalfData"
+    dirRoot = "../../../Sources/T4C2_HalfData"
     dirSaveData = os.path.join(dirRoot,"SavedData")
     pathModel = os.path.join(dirRoot,"model.pth")
     dirTarg = os.path.join(dirRoot,"Output")
