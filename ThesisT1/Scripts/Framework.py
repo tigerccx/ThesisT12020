@@ -149,6 +149,11 @@ def MakeImgsToSave(countIW, datasetTest):
     maskNiiToSave[..., idxEnd:] = 0
     return imgNiiToSave, maskNiiToSave, idxBeg, idxEnd, lenIW
 
+def SaveBoxPlot(data, pathSave):
+    plt.boxplot(data)
+    plt.savefig(pathSave)
+    plt.cla()
+
 #TODO: Add Temp for processed files
 #TODO: Add augmentationn
 #TODO: Try transfer learning
@@ -157,8 +162,8 @@ def MakeImgsToSave(countIW, datasetTest):
 def RunNN(classes, slices, dis, resize,
           aug, preproc,
           trainTestSplit, batchSizeTrain, epochs, learningRate,
-          toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
-          dirSaveData, pathModel, dirSrc, dirTarg, pathRunningLossPlot, pathRunningAccPlot, pathRunningDicePlot,
+          toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput, toSaveResultAnalysis,
+          dirSaveData, pathModel, dirSrc, dirTarg, dirRAPlot, pathRunningLossPlot, pathRunningAccPlot, pathRunningDicePlot,
           toUseDisk=False, dataFmt="float32", randSeed=0, toPrintTime=True,
           toValidate=True, trainValidationSplit=0.85):
     #
@@ -174,6 +179,7 @@ def RunNN(classes, slices, dis, resize,
     TEST = toTest
     SAVE_OUTPUT = toSaveOutput
     SAVE_LOSS = toSaveRunnningLoss
+    SAVE_RA = toSaveResultAnalysis
     USE_DISK = toUseDisk
     PRINT_TIME = toPrintTime
 
@@ -803,27 +809,26 @@ def RunNN(classes, slices, dis, resize,
             batchCount = 0
             countImg = 0
 
-            countIW = None
-            countImgInIW = None
-            imgNiiToSave = None
-            maskNiiToSave = None
-            idxBeg = None
-            idxEnd = None
-            lenIW = None
             if SAVE_OUTPUT and OUTPUT_NII:
                 countIW = 0
                 countImgInIW = 0
                 imgNiiToSave, maskNiiToSave, idxBeg, idxEnd, lenIW = MakeImgsToSave(countIW,datasetTest)
+
+            if SAVE_RA:
+                accAll = np.empty(0,dtype=float)
+                diceAll = {}
+                for c in range(classes):
+                    diceAll[c] = np.empty(0,dtype=float)
 
             # Evaluate network on the test dataset.  We aren't calculating gradients, so disable autograd to speed up
             # computations and reduce memory usage.
             with torch.no_grad():
                 for i,batch in enumerate(loaderTest):
 
-                    inputs = batch[0].type(CommonUtil.PackIntoTorchType(dataFmt))
+                    inputs = batch[0].type(CommonUtil.PackIntoTorchType(dataFmt)) # [IdxInBatch, Channel, H, W]
                     inputs = inputs.to(device)
 
-                    masks = batch[1].type(CommonUtil.PackIntoTorchType(dataFmt))
+                    masks = batch[1].type(CommonUtil.PackIntoTorchType(dataFmt)) # [IdxInBatch, Channel, H, W]
                     # print(masksNP1.shape)
                     masks = masks.to(device)
 
@@ -859,12 +864,19 @@ def RunNN(classes, slices, dis, resize,
                     # print(batchAcc)
                     rateCorrect += batchAcc
 
-
                     # Dice
-                    for j in range(classes):
-                        predictClass = predicts[:, j, ...]
-                        maskClass = masks[:, j, ...]
-                        dice[j]+=diceCoefAveTorch(predictClass, maskClass)
+                    for c in range(classes):
+                        predictClass = predicts[:, c, ...]
+                        maskClass = masks[:, c, ...]
+                        dice[c]+=diceCoefAveTorch(predictClass, maskClass)
+
+                    if SAVE_RA:
+                        for j in range(inputs.shape[0]):
+                            accAll = np.insert(accAll, len(accAll), torch.sum(masks[j] == predicts[j]).item() / masks[j].numel())
+                            for c in range(classes):
+                                predictClass = predicts[j, c, ...]
+                                maskClass = masks[j, c, ...]
+                                diceAll[c] = np.insert(diceAll[c], len(diceAll[c]), diceCoefAveTorch(predictClass, maskClass))
 
                     if SAVE_OUTPUT:
                         CommonUtil.Mkdir(dirTarg)
@@ -940,6 +952,11 @@ def RunNN(classes, slices, dis, resize,
 
             accuracy = rateCorrect / batchCount
             dice = dice / batchCount
+
+            if SAVE_RA:
+                SaveBoxPlot(accAll, os.path.join(dirRAPlot,"Box_Acc.jpg"))
+                for c in range(classes):
+                    SaveBoxPlot(diceAll[c], os.path.join(dirRAPlot, "Box_Dice"+str(c)+".jpg"))
 
     if PRINT_TIME:
         endProc = time.time()
@@ -1711,6 +1728,7 @@ def Main_TRIAL():
     toTest = True
     toSaveRunnningLoss = True
     toSaveOutput = True
+    toSaveResultAnalysis = True
 
     #
     # Param Setting
@@ -1733,6 +1751,7 @@ def Main_TRIAL():
     dirSaveData = os.path.join(dirRoot,"SavedData")
     pathModel = os.path.join(dirRoot,"model.pth")
     dirTarg = os.path.join(dirRoot,"Output")
+    dirRAPlot = dirRoot
     pathRunningLossPlot = os.path.join(dirRoot,"loss.jpg")
     pathRunningAccPlot = os.path.join(dirRoot, "acc.jpg")
     pathRunningDicePlot = os.path.join(dirRoot, "dice.jpg")
@@ -1740,8 +1759,8 @@ def Main_TRIAL():
     accuracy, dice = RunNN(classes, slices, dis, resize,
                            DataAug, PreprocDistBG_TRIAL,
                            trainTestSplit, batchSizeTrain, epochs, learningRate,
-                           toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
-                           dirSaveData, pathModel, dirSrc, dirTarg, pathRunningLossPlot, pathRunningAccPlot, pathRunningDicePlot,
+                           toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput, toSaveResultAnalysis,
+                           dirSaveData, pathModel, dirSrc, dirTarg, dirRAPlot, pathRunningLossPlot, pathRunningAccPlot, pathRunningDicePlot,
                            toUseDisk, dataFmt, randSeed,
                            toValidate=True, trainValidationSplit=0.85)
 
@@ -1764,6 +1783,7 @@ def Main():
     toTest = True
     toSaveRunnningLoss = True
     toSaveOutput = True
+    toSaveResultAnalysis = True
 
     #
     # Param Setting
@@ -1786,6 +1806,7 @@ def Main():
     dirSaveData = os.path.join(dirRoot,"SavedData")
     pathModel = os.path.join(dirRoot,"model.pth")
     dirTarg = os.path.join(dirRoot,"Output")
+    dirRAPlot = dirRoot
     pathRunningLossPlot = os.path.join(dirRoot,"loss.jpg")
     pathRunningAccPlot = os.path.join(dirRoot,"acc.jpg")
     pathRunningDicePlot = os.path.join(dirRoot,"dice.jpg")
@@ -1793,8 +1814,8 @@ def Main():
     accuracy, dice = RunNN(classes, slices, dis, resize,
                            DataAug, PreprocT4,
                            trainTestSplit, batchSizeTrain, epochs, learningRate,
-                           toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
-                           dirSaveData, pathModel, dirSrc, dirTarg, pathRunningLossPlot, pathRunningAccPlot, pathRunningDicePlot,
+                           toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput, toSaveResultAnalysis,
+                           dirSaveData, pathModel, dirSrc, dirTarg, dirRAPlot, pathRunningLossPlot, pathRunningAccPlot, pathRunningDicePlot,
                            toUseDisk, dataFmt, randSeed,
                            toValidate=True, trainValidationSplit=0.85) #trainValidationSplit=0.95
 
