@@ -11,7 +11,7 @@ import torch.nn.functional as tfunc
 class UNet_0(tnn.Module):
     # Network Definition
     def __init__(self, sclices, classes):
-        super(Unet_0, self).__init__()
+        super(UNet_0, self).__init__()
         # Conv(↓)
         # torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True)
         self.conv1 = tnn.Conv2d(sclices, 32, 3, padding=1)
@@ -167,29 +167,6 @@ class UNet_1(tnn.Module):
             for l in range(depth-2,-1,-1):
                 setattr(self,"dec"+str(l), DecUNet(2**(l+1)*n+2**l*n,n,l,hOrgIn=inputHW[0],wOrgIn=inputHW[1],dropoutRate=dropoutRate))
         self.con2=Con(n, classes, 1)
-
-    # def forward(self, x):
-    #     x1 = self.con1(x)
-    #     xEnc0 = self.enc0(x1)
-    #     for l in range(1,self.depth):
-    #         exec("xEnc"+str(l)+"=self.enc"+str(l)+"(xEnc"+str(l-1)+")")
-    #     firstDecL = self.depth-2
-    #     # print("xEnc" + str(firstDecL+1))
-    #     # exec("print(xEnc" + str(firstDecL+1) + ".shape)")
-    #     # print("xEnc" + str(firstDecL))
-    #     # exec("print(xEnc" + str(firstDecL) + ".shape)")
-    #     exec("xDec"+str(firstDecL)+"=self.dec"+str(firstDecL)+"(xEnc"+str(firstDecL+1)+",xEnc"+str(firstDecL)+")")
-    #     for l in range(self.depth-3,-1,-1):
-    #         # print("xDec"+str(l+1))
-    #         # exec("print(xDec" + str(l+1) + ".shape)")
-    #         # print("xEnc" + str(l))
-    #         # exec("print(xEnc" + str(l) + ".shape)")
-    #         exec("xDec"+str(l)+"=self.dec"+str(l)+"(xDec"+str(l+1)+",xEnc"+str(l)+")")
-    #         print("xDec"+str(l))
-    #         exec("print(xDec" + str(l) + ".shape)")
-    #
-    #     x2 = self.con2(xDec0)
-    #     return x2
 
     def forward(self, x):
         self.x1 = self.con1(x)

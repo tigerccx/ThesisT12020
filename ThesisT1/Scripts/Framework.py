@@ -955,8 +955,10 @@ def RunNN(classes, slices, dis, resize,
 
             if SAVE_RA:
                 SaveBoxPlot(accAll, os.path.join(dirRAPlot,"Box_Acc.jpg"))
+                np.save(os.path.join(dirRAPlot,"testacc.npy"),accAll)
                 for c in range(classes):
                     SaveBoxPlot(diceAll[c], os.path.join(dirRAPlot, "Box_Dice"+str(c)+".jpg"))
+                    np.save(os.path.join(dirRAPlot, "testdice"+str(c)+".npy"),diceAll[c])
 
     if PRINT_TIME:
         endProc = time.time()
@@ -968,8 +970,8 @@ def RunNN(classes, slices, dis, resize,
 def RunNNMulti(types, classes, slices, dis, resize,
           aug, preproc,
           trainTestSplit, batchSizeTrain, epochs, learningRate,
-          toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
-          dirSaveData, pathModel, dirsSrcData, dirSrcMask, dirTarg, pathRunningLossPlot, pathRunningAccPlot, pathRunningDicePlot,
+          toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput, toSaveResultAnalysis,
+          dirSaveData, pathModel, dirsSrcData, dirSrcMask, dirTarg, dirRAPlot, pathRunningLossPlot, pathRunningAccPlot, pathRunningDicePlot,
           dataFmt="float32", randSeed=0, toPrintTime=True,
           toValidate=True, trainValidationSplit=0.85):
     #
@@ -985,6 +987,7 @@ def RunNNMulti(types, classes, slices, dis, resize,
     TEST = toTest
     SAVE_OUTPUT = toSaveOutput
     SAVE_LOSS = toSaveRunnningLoss
+    SAVE_RA = toSaveResultAnalysis
     PRINT_TIME = toPrintTime
 
     dirTrain = "train"
@@ -1572,10 +1575,11 @@ def RunNNMulti(types, classes, slices, dis, resize,
             batchCount = 0
             countImg = 0
 
-            testcount=0
-            testacc = 0
-            testcor = 0
-            testall = 0
+            if SAVE_RA:
+                accAll = np.empty(0,dtype=float)
+                diceAll = {}
+                for c in range(classes):
+                    diceAll[c] = np.empty(0,dtype=float)
 
             # Evaluate network on the test dataset.  We aren't calculating gradients, so disable autograd to speed up
             # computations and reduce memory usage.
@@ -1627,6 +1631,14 @@ def RunNNMulti(types, classes, slices, dis, resize,
                         predictClass = predicts[:, j, ...]
                         maskClass = masks[:, j, ...]
                         dice[j]+=diceCoefAveTorch(predictClass, maskClass)
+
+                    if SAVE_RA:
+                        for j in range(inputs.shape[0]):
+                            accAll = np.insert(accAll, len(accAll), torch.sum(masks[j] == predicts[j]).item() / masks[j].numel())
+                            for c in range(classes):
+                                predictClass = predicts[j, c, ...]
+                                maskClass = masks[j, c, ...]
+                                diceAll[c] = np.insert(diceAll[c], len(diceAll[c]), diceCoefAveTorch(predictClass, maskClass))
 
                     if SAVE_OUTPUT:
                         CommonUtil.Mkdir(dirTarg)
@@ -1681,6 +1693,13 @@ def RunNNMulti(types, classes, slices, dis, resize,
 
             accuracy = rateCorrect / batchCount
             dice = dice / batchCount
+
+            if SAVE_RA:
+                SaveBoxPlot(accAll, os.path.join(dirRAPlot,"Box_Acc.jpg"))
+                np.save(os.path.join(dirRAPlot,"testacc.npy"),accAll)
+                for c in range(classes):
+                    SaveBoxPlot(diceAll[c], os.path.join(dirRAPlot, "Box_Dice"+str(c)+".jpg"))
+                    np.save(os.path.join(dirRAPlot, "testdice"+str(c)+".npy"),diceAll[c])
 
     if PRINT_TIME:
         endProc = time.time()
@@ -1793,7 +1812,7 @@ def Main():
     trainTestSplit = 0.8 #0.9
     batchSizeTrain = 32 #24
     slices = 1
-    dis = 5
+    dis = 1
     resize = None #(256, 256)
     epochs = 50 #30 #250
     learningRate = 0.0005 #0.0001 #0.004
@@ -1832,12 +1851,13 @@ def MainMT():
     randSeed = 0
 
     # Train or Test
-    toSaveData = True
+    toSaveData = False
     toLoadData = True
-    toTrain = True
+    toTrain = False
     toTest = True
     toSaveRunnningLoss = True
     toSaveOutput = False
+    toSaveResultAnalysis = True
 
     #
     # Param Setting
@@ -1857,10 +1877,11 @@ def MainMT():
     dirsSrcData = ["../../../Sources/Data/data_nii/dataBkup/T1","../../../Sources/Data/data_nii/dataBkup/T4"] #["../../../Sources/Data/data_nii/dataBkup/ljpt","../../../Sources/Data/data_nii/dataBkup/ljpt1"]
     dirSrcMask = "../../../Sources/Data/data_nii/masks" #"../../../Sources/Data/data_nii/maskLJPT"
 
-    dirRoot = "../../../Sources/T1T4C2_HalfData"
+    dirRoot = "../../../Sources/T2T4C2_HalfData"
     dirSaveData = os.path.join(dirRoot,"SavedData")
     pathModel = os.path.join(dirRoot,"model.pth")
     dirTarg = os.path.join(dirRoot,"Output")
+    dirRAPlot = dirRoot
     pathRunningLossPlot = os.path.join(dirRoot,"loss.jpg")
     pathRunningAccPlot = os.path.join(dirRoot,"acc.jpg")
     pathRunningDicePlot = os.path.join(dirRoot,"dice.jpg")
@@ -1868,8 +1889,8 @@ def MainMT():
     accuracy, dice = RunNNMulti(types, classes, dis, slices, resize,
                            DataAugMultiNiis, PreprocMultiNiis,
                            trainTestSplit, batchSizeTrain, epochs, learningRate,
-                           toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
-                           dirSaveData, pathModel, dirsSrcData, dirSrcMask, dirTarg, pathRunningLossPlot, pathRunningAccPlot, pathRunningDicePlot,
+                           toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput, toSaveResultAnalysis,
+                           dirSaveData, pathModel, dirsSrcData, dirSrcMask, dirTarg, dirRAPlot, pathRunningLossPlot, pathRunningAccPlot, pathRunningDicePlot,
                            dataFmt=dataFmt, randSeed=randSeed,
                            toValidate=True, trainValidationSplit=0.85) #trainValidationSplit=0.95
 
@@ -1939,52 +1960,56 @@ def RESTORE_MISSING_DATA():
     randSeed = 0
 
     # Train or Test
-    toSaveData = False
+    toSaveData = True
     toLoadData = False
     toTrain = False
-    toTest = True
+    toTest = False
     toSaveRunnningLoss = False
     toSaveOutput = False
+    toSaveResultAnalysis = False
+
 
     #
     # Param Setting
     #
     #   Running Params
     classes = 2
-    trainTestSplit = 0.8
+    trainTestSplit = 0
     batchSizeTrain = 8
-    slices = 3
+    slices = 1
+    dis = 1
     resize = None #(256, 256)
     epochs = 50
     learningRate = 0.001
     dataFmt = "float32"
-    toUseDisk = True
+    toUseDisk = False
 
     dirSrc = "../../../Sources/Data/data_nii"
 
     dirRoot = "../../../Sources/Restore"
+    dirRAPlot = dirRoot
     dirSaveData = os.path.join(dirRoot,"SavedData")
     pathModel = os.path.join(dirRoot,"model.pth")
     dirTarg = os.path.join(dirRoot,"Output")
     pathRunningLossPlot = os.path.join(dirRoot,"loss.jpg")
+    pathRunningAccPlot = os.path.join(dirRoot, "acc.jpg")
+    pathRunningDicePlot = os.path.join(dirRoot, "dice.jpg")
 
-    accuracy, dice = RunNN(classes, slices, resize,
+    accuracy, dice = RunNN(classes, slices, dis, resize,
                            DataAug, PreprocT4,
                            trainTestSplit, batchSizeTrain, epochs, learningRate,
-                           toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput,
-                           dirSaveData, pathModel, dirSrc, dirTarg, pathRunningLossPlot,
-                           toUseDisk, dataFmt, randSeed)
+                           toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput, toSaveResultAnalysis,
+                           dirSaveData, pathModel, dirSrc, dirTarg, dirRAPlot, pathRunningLossPlot, pathRunningAccPlot, pathRunningDicePlot,
+                           toUseDisk, dataFmt, randSeed,
+                           toValidate=False, trainValidationSplit=0.85)
 
 if __name__ == '__main__':
     #Main_MEM_SAVE()
     #Main_TRIAL()
     Main()
-    # MainMT()
+    #MainMT()
+
     #RESTORE_MISSING_DATA()
-    #Main0()
-    #Main1()
-    #Main2()
-    #Main3()
     # TestNiiWrapper()
     #TestImgDataSet()
     #TestNetwork()
