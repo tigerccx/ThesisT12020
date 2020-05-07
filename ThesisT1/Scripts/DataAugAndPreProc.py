@@ -140,12 +140,12 @@ Aug:
     Flip
     dataFlip
     for dataOrg and data Flip:
-        Rand x4 : Sheer(-0.1:0.1,-0.1:0.1),Scale(0.95,1.05),Rot(-20,20)
+        Rand x2 : Sheer(-0.1:0.1,-0.1:0.1),Scale(0.95,1.05),Rot(-20,20)
+    --> aug x4
 '''
 
 # In: ndarray[H,W,Slice] dtype=uint8
 # Out: ndarray[CountAug,H,W,Slice] dtype=uint8
-# @profile
 def AugCV2(imgsCV2, sheer, scale, rot, isImg):
     interpolation = None
     if isImg:
@@ -296,7 +296,8 @@ def DataAugMultiNiis(arrAtlasImg, atlasMask, countAug=1):
         Flip
         dataFlip
         for dataOrg and data Flip:
-            Rand x4 : Sheer(-0.1:0.1,-0.1:0.1),Scale(0.95,1.05),Rot(-10,10)
+            Rand x2 : Sheer(-0.1:0.1,-0.1:0.1),Scale(0.95,1.05),Rot(-10,10)
+        x4
     '''
     arrAtlasImgU8 = np.transpose(np.asarray([np.asarray(ImageProcessor.MapTo255(arrAtlasImg), np.uint8)], dtype=np.uint8),(1,0,2,3,4)) # ndarray[Type,CountAug,H,W,Slice]
     del (arrAtlasImg)

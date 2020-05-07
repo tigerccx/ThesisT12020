@@ -46,15 +46,16 @@ from LossFunc import MulticlassDiceLoss
 DEBUG = False
 DEBUG_TEST = False
 DEBUG_SHOW_INPUT = False
-OUTPUT_PROB = False
-OUTPUT_NII = True
+OUTPUT_PROB = False # To output the prediction as probability
+OUTPUT_NII = True # To output the prediction as .nii files
 
-# Abort
+# Abort training
 _abort = None
 def anyKeyToAbort():
     global _abort
     _abort = input()
 
+# Init network weight
 def weight_init(m):
     # 也可以判断是否为conv2d，使用相应的初始化方式
     if isinstance(m, tnn.Conv2d) or isinstance(m, tnn.ConvTranspose2d):
@@ -64,11 +65,7 @@ def weight_init(m):
         tnn.init.constant_(m.weight, 1)
         tnn.init.constant_(m.bias, 0)
 
-# def LossFunc(output, target):
-# #     # Loss Function
-# #     loss = MulticlassDiceLoss()
-# #     return MulticlassDiceLoss()#loss(output, target)
-
+# CE
 def cross_entropy(input_, target, reduction='elementwise_mean'):
     """ Cross entropy that accepts soft targets
     Args:
@@ -95,6 +92,9 @@ def cross_entropy(input_, target, reduction='elementwise_mean'):
     else:
         return res
 
+#
+# Loss Func wrapping
+#
 def LossFunc():
     # Loss Function
     return cross_entropy
@@ -108,6 +108,7 @@ def DiceLossF(output, target):
 def CE_Dice_LossF(output, target,scale=1e-3):
     muldice = MulticlassDiceLoss()
     return scale*cross_entropy(output,target)+muldice(tnn.Softmax(dim=1)(output), target)
+
 
 # Input: Tensor [IdxInBatch, H, W]
 #        Tensor [IdxInBatch, H, W]
@@ -154,11 +155,49 @@ def SaveBoxPlot(data, pathSave):
     plt.savefig(pathSave)
     plt.cla()
 
-#TODO: Add Temp for processed files
-#TODO: Add augmentationn
-#TODO: Try transfer learning
-#TODO: Use multi-thread for reading annd saving
-
+# Main Framework
+# Input:
+# classes int: count of target classes
+# slices int: count of input slices
+# dis int: slice-to-slice distance
+# resize (int,int): resize shape
+# aug func: Input: ndarray[H,W,Slice] fmt=Grey1
+#                  ndarray[H,W,Slice] fmt=GreyStep
+#           Output: ndarray[CountAug,H,W,Slice] fmt=Grey1
+#                   ndarray[CountAug,H,W,Slice] fmt=GreyStep)
+#         : Augmentation func
+# preproc func: Input: ndarray[H,W,Slices] Grey1
+#                      ndarray [H,W,Slice] GreyStep
+#                      int
+#               Output: ndarray[H,W,Type,Slices] Grey1
+#                       ndarray [H,W,Slice] GreyStep
+#             : Preproc func
+# trainTestSplit float: dataset split rate (train/all)
+# batchSizeTrain int: batch size
+# epochs int: count of epochs
+# learningRate float: learning rate
+# toSaveData bool: to save augmentation result on disk
+# toLoadData bool: to load augmentation result on disk
+# toTrain bool: to train the model
+# toSaveRunnningLoss bool: to save running status line plot
+# toTest bool: to test the model
+# toSaveOutput bool: to save output
+# toSaveResultAnalysis bool: to save the result info for analysis (acc, dice of each input and box plots for now)
+# dirSaveData str: the directory to save augmentation result on disk
+# pathModel str: the path to save the model to
+# dirSrc str: the directory to read input
+#             Note: dirSrc should contain 2 folders: dirSrc/data and dirSrc/masks to contain input images and input masks
+# dirTarg str: the directory to save testing output
+# dirRAPlot str: the directory to save the result info for analysis
+# pathRunningLossPlot str: the path to save the running loss plot
+# pathRunningAccPlot str: the path to save the running acc plot
+# pathRunningDicePlot str: the path to save the running dice plot
+# toUseDisk bool: to enable memory saving mode (!!!extremely slow!!!)
+# dataFmt str: the data format to use for the network (!!!deprecated!!!)
+# randSeed int: random seed for numpy
+# toPrintTime bool: to print the time each section uses
+# toValidate bool: to enable training validation
+# trainValidationSplit: dataset split rate (validation/(all-testing))
 def RunNN(classes, slices, dis, resize,
           aug, preproc,
           trainTestSplit, batchSizeTrain, epochs, learningRate,
@@ -967,6 +1006,22 @@ def RunNN(classes, slices, dis, resize,
 
     return accuracy, dice
 
+# Main Framework to run with more than one type of input
+# Note: have not yet add output as nii
+# Note: basically the same with RunNN but only few differences to adapt to multi-input
+# Diff in params:
+# types int: types of input to use
+# aug func: Input: ndarray[Type,H,W,Slice] fmt=Grey1
+#                  ndarray[H,W,Slice] fmt=GreyStep
+#           Output: ndarray[Type,CountAug,H,W,Slice] fmt=Grey1
+#                   ndarray[CountAug,H,W,Slice] fmt=GreyStep)
+# preproc func: Input: ndarray[H,W,Type,Slices] Grey1
+#                      ndarray [H,W,Slice] GreyStep
+#                      int
+#               Output: ndarray[H,W,Type,Slices] Grey1
+#                       ndarray [H,W,Slice] GreyStep
+# dirsSrcData [type] str: list of directories to read input images from
+# dirTarg str: the directory to read input labels from
 def RunNNMulti(types, classes, slices, dis, resize,
           aug, preproc,
           trainTestSplit, batchSizeTrain, epochs, learningRate,
@@ -1734,62 +1789,6 @@ def TestNetwork():
     # Used(MB): 667.7109375
     # Free(MB): 1380.2890625
 
-# Run net for trial data
-# NOTE: Need to change RunNN
-def Main_TRIAL():
-    # Rand Seed
-    randSeed = 2
-
-    # Train or Test
-    toSaveData = False
-    toLoadData = True
-    toTrain = True
-    toTest = True
-    toSaveRunnningLoss = True
-    toSaveOutput = True
-    toSaveResultAnalysis = True
-
-    #
-    # Param Setting
-    #
-    #   Running Params
-    classes = 7
-    trainTestSplit = 0.8
-    batchSizeTrain = 8
-    slices = 3
-    dis = 1
-    resize = (256, 256)  # None
-    epochs = 50
-    learningRate = 0.001
-    dataFmt = "float32"
-    toUseDisk = False
-
-    dirSrc = "../../../Sources/Data/data_nii_TRIAL"
-
-    dirRoot = "../../../Sources/C7"
-    dirSaveData = os.path.join(dirRoot,"SavedData")
-    pathModel = os.path.join(dirRoot,"model.pth")
-    dirTarg = os.path.join(dirRoot,"Output")
-    dirRAPlot = dirRoot
-    pathRunningLossPlot = os.path.join(dirRoot,"loss.jpg")
-    pathRunningAccPlot = os.path.join(dirRoot, "acc.jpg")
-    pathRunningDicePlot = os.path.join(dirRoot, "dice.jpg")
-
-    accuracy, dice = RunNN(classes, slices, dis, resize,
-                           DataAug, PreprocDistBG_TRIAL,
-                           trainTestSplit, batchSizeTrain, epochs, learningRate,
-                           toSaveData, toLoadData, toTrain, toSaveRunnningLoss, toTest, toSaveOutput, toSaveResultAnalysis,
-                           dirSaveData, pathModel, dirSrc, dirTarg, dirRAPlot, pathRunningLossPlot, pathRunningAccPlot, pathRunningDicePlot,
-                           toUseDisk, dataFmt, randSeed,
-                           toValidate=True, trainValidationSplit=0.85)
-
-    print("Classification accuracy: ", accuracy)
-
-    print("Dice Coef:")
-
-    for j in range(classes):
-        print("Class ", j, ": ", dice[j])
-
 # Run net for real data
 def Main():
     # Rand Seed
@@ -1807,7 +1806,7 @@ def Main():
     #
     # Param Setting
     #
-    #   Running Params
+    # Running Params
     classes = 2
     trainTestSplit = 0.8 #0.9
     batchSizeTrain = 32 #24
@@ -1819,6 +1818,9 @@ def Main():
     dataFmt = "float32"
     toUseDisk = False
 
+    #
+    # Set all kinds of paths
+    #
     dirSrc = "../../../Sources/Data/data_nii"
 
     dirRoot = "../../../Sources/T4C2_HalfData"
@@ -1838,6 +1840,9 @@ def Main():
                            toUseDisk, dataFmt, randSeed,
                            toValidate=True, trainValidationSplit=0.85) #trainValidationSplit=0.95
 
+    #
+    # Print result
+    #
     print("Classification accuracy: ", accuracy)
 
     print("Dice Coef:")
@@ -1954,7 +1959,7 @@ def Main_MEM_SAVE():
     for j in range(classes):
         print("Class ", j, ": ", dice[j])
 
-# NOTE: Need to change RunNN
+# Only used to restore some data
 def RESTORE_MISSING_DATA():
     # Rand Seed
     randSeed = 0
@@ -2004,12 +2009,10 @@ def RESTORE_MISSING_DATA():
                            toValidate=False, trainValidationSplit=0.85)
 
 if __name__ == '__main__':
-    #Main_MEM_SAVE()
-    #Main_TRIAL()
     Main()
     #MainMT()
+    #Main_MEM_SAVE()
 
     #RESTORE_MISSING_DATA()
-    # TestNiiWrapper()
-    #TestImgDataSet()
+
     #TestNetwork()
